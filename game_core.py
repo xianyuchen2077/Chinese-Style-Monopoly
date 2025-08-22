@@ -4,6 +4,7 @@
 import random
 from enum import Enum
 
+# 五行元素
 class Element(Enum):
     GOLD = '金'
     WOOD = '木'
@@ -11,6 +12,7 @@ class Element(Enum):
     FIRE = '火'
     EARTH = '土'
 
+# 建筑等级
 class BuildingLevel(Enum):
     EMPTY = 0
     HUT = 1
@@ -18,11 +20,21 @@ class BuildingLevel(Enum):
     INN = 3
     PALACE = 4
 
-# ========================= 技能系统 =========================
+# 技能等级
 class SkillLevel(Enum):
     I = 1
     II = 2
     III = 3
+
+# 生肖→地支名称（用于日志及界面）
+EARTHLY_NAMES = {
+    '鼠': '子鼠', '牛': '丑牛', '虎': '寅虎', '兔': '卯兔',
+    '龙': '辰龙', '蛇': '巳蛇', '马': '午马', '羊': '未羊',
+    '猴': '申猴', '鸡': '酉鸡', '狗': '戌狗', '猪': '亥猪'
+}
+def fmt_name(player):
+    """返回统一格式：[玩家名]角色名"""
+    return f"[{player.name}]{EARTHLY_NAMES[player.zodiac]}"
 
 class SkillManager:
     """每个玩家自带一个实例，负责冷却、升级与触发"""
@@ -37,41 +49,46 @@ class SkillManager:
         }
 
     # ------------- 鼠 - 灵鼠窃运 ----------------
-    def use_shu(self, target_player, direction=None):
+    def use_shu(self, target_player, direction):
         """
-        direction: 'forward' | 'backward' | 'stay'
+        direction: 'backward' | 'stay'
         """
-        if self.skills['鼠']['cooldown'] > 0:
+        skill = self.skills['鼠']
+        if skill['cooldown'] > 0:
             return False, "技能冷却中"
 
-        level = self.skills['鼠']['level']
+        level = skill['level']
+        turns = 2 if level == SkillLevel.III else 1
+        lock_skill = level != SkillLevel.I  # II 以上封锁技能
+
         target_player.status['shu_control'] = {
-            'turns': 2 if level is SkillLevel.III else 1,
+            'turns': turns,
             'direction': direction,
-            'lock_skill': level is not SkillLevel.I
+            'lock_skill': lock_skill
         }
 
         # 冷却
-        self.skills['鼠']['cooldown'] = 3 if level is SkillLevel.III else 3
-        self.skills['鼠']['used'] += 1
+        skill['cooldown'] = 4 if level == SkillLevel.III else 3
+        skill['used'] += 1
         return True, f"{self.player.name} 对 {target_player.name} 发动【灵鼠窃运】"
 
     def upgrade_shu(self):
         skill = self.skills['鼠']
-        if skill['level'] is SkillLevel.I and skill['used'] >= 3 and self.player.energy >= 100:
+        lvl, used, eng = skill['level'], skill['used'], self.player.energy
+        if lvl == SkillLevel.I and used >= 3 and eng >= 100:
             skill['level'] = SkillLevel.II
             self.player.energy -= 100
             return True
-        if skill['level'] is SkillLevel.II and skill['used'] >= 6 and self.player.energy >= 250:
+        if lvl == SkillLevel.II and used >= 6 and eng >= 250:
             skill['level'] = SkillLevel.III
             self.player.energy -= 250
             return True
         return False
 
     def tick_cooldown(self):
-        """每回合结束调用"""
-        for k, v in self.skills.items():
+        for v in self.skills.values():
             v['cooldown'] = max(0, v['cooldown'] - 1)
+
 class Player:
     def __init__(self, name, zodiac, is_ai=False):
         self.name = name
@@ -216,11 +233,11 @@ class Game:
         # 简易奇遇系统：根据格子五行或特殊类型触发效果
         tile = self.board.tiles[player.position]
         if tile.special == 'start':
-            self.log.append(f'{player.name} 踏上起点，精神一振，获得500金币。')
+            self.log.append(f'{fmt_name(player)} 踏上起点，精神一振，获得500金币。')
             player.money += 500
             return
         if tile.special == 'hospital':
-            self.log.append(f'{player.name} 进入太医院，休养生息，支付800金币。')
+            self.log.append(f'{fmt_name(player)} 进入太医院，休养生息，支付800金币。')
             player.money -= 800
             player.status['skip_turns'] = max(player.status.get('skip_turns', 0), 1)
             return
@@ -229,22 +246,22 @@ class Game:
             e = tile.element
             if e == Element.GOLD:
                 player.money += 3000
-                self.log.append(f'{player.name} 点石成金，获得3000金币！')
+                self.log.append(f'{fmt_name(player)} 点石成金，获得3000金币！')
             elif e == Element.WOOD:
                 removed = False
                 if player.status:
                     player.status.clear()
                     removed = True
-                self.log.append(f'{player.name} 枯木逢春，{"解除所有负面状态" if removed else "精神焕发"}。')
+                self.log.append(f'{fmt_name(player)} 枯木逢春，{"解除所有负面状态" if removed else "精神焕发"}。')
             elif e == Element.WATER:
                 player.position = (player.position + 3) % len(self.board.tiles)
-                self.log.append(f'{player.name} 顺水推舟，额外前进3格至 {player.position}。')
+                self.log.append(f'{fmt_name(player)} 顺水推舟，额外前进3格至 {player.position}。')
             elif e == Element.FIRE:
                 player.money -= 1000
-                self.log.append(f'{player.name} 玩火自焚，损失1000金币。')
+                self.log.append(f'{fmt_name(player)} 玩火自焚，损失1000金币。')
             elif e == Element.EARTH:
                 player.status['shield'] = max(player.status.get('shield', 0), 2)
-                self.log.append(f'{player.name} 稳如磐石，获得2回合保护。')
+                self.log.append(f'{fmt_name(player)} 稳如磐石，获得2回合保护。')
             return
 
     # ====== 经济：购买与升级 ======
@@ -273,7 +290,7 @@ class Game:
         tile.owner = player
         tile.level = BuildingLevel.HUT
         player.properties.append(tile.idx)
-        self.log.append(f'{player.name} 购买了「{tile.name}」，建造茅屋。')
+        self.log.append(f'{fmt_name(player)} 购买了「{tile.name}」，建造茅屋。')
         # 标记本回合刚购买，禁止立刻加盖
         player.status['just_bought'] = 1
         return True
@@ -303,7 +320,7 @@ class Game:
             return False
         player.money -= cost
         tile.level = BuildingLevel(tile.level.value + 1)
-        self.log.append(f'{player.name} 升级了「{tile.name}」至等级{tile.level.value}。')
+        self.log.append(f'{fmt_name(player)} 升级了「{tile.name}」至等级{tile.level.value}。')
         return True
 
     # 预留更多接口供UI调用

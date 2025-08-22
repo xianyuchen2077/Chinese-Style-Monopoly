@@ -16,6 +16,13 @@ BG_COLOR = (245, 235, 200)
 GRID_COLOR = (80, 80, 80)
 PLAYER_COLORS = [(220,20,60), (30,144,255), (34,139,34), (255,140,0)]
 
+# 生肖→地支名称（用于日志及界面）
+EARTHLY_NAMES = {
+    '鼠': '子鼠', '牛': '丑牛', '虎': '寅虎', '兔': '卯兔',
+    '龙': '辰龙', '蛇': '巳蛇', '马': '午马', '羊': '未羊',
+    '猴': '申猴', '鸡': '酉鸡', '狗': '戌狗', '猪': '亥猪'
+}
+
 # 生肖代表色（用于地皮所有权五角星）
 ZODIAC_COLORS = {
     '鼠': (128, 128, 128),
@@ -53,7 +60,6 @@ SPECIAL_BORDER_COLORS = {
     'encounter': (186, 85, 211),  # 紫色
     'hospital': (0, 191, 255),    # 深天蓝
 }
-
 
 # Board parameters
 GRID_SIZE = 13
@@ -175,6 +181,10 @@ def choose_players_ui():
         pygame.display.flip()
         clock.tick(60)
 
+def fmt_name(player):
+    """返回统一格式：[玩家名]角色名"""
+    return f"[{player.name}]{EARTHLY_NAMES[player.zodiac]}"
+
 class GameUI:
     def __init__(self):
         # 动态压缩边距/信息区宽度以适配屏幕，不改变格子大小
@@ -188,7 +198,9 @@ class GameUI:
         self.log_scroll = 0
         self.has_rolled = False   # 当前玩家是否已转动罗盘
         self.hovered_tile = None   # 当前悬停地块索引
-        self.end_turn_btn_rect = pygame.Rect(0, 0, 0, 0)   # 占位，后面再更新位置
+        self.shu_target = None      # 子鼠技能：被选中的目标玩家
+        self.shu_sub_modal = None   # 'select_target' | 'select_dir'
+
 
         if desired_h > max_h:
             margin = max(20, (max_h - base_grid_h) // 2)
@@ -653,32 +665,35 @@ class GameUI:
             if not self.has_rolled:        # 本回合尚未转动
                 self.spin_wheel()
             else:                          # 已转动，自动进入下一位
-                self.log.append(f'{self.game.players[self.game.current_player_idx].name} 本回合已转动罗盘')
+                self.log.append(f'{fmt_name(self.game.players[self.game.current_player_idx])} 本回合已转动罗盘')
                 self._scroll_to_bottom()
 
         # ---------------- 技能按钮 ----------------
         elif self.skill_btn_rect.collidepoint(pos):
             cur = self.game.players[self.game.current_player_idx]
             if cur.zodiac != '鼠':
-                self.log.append(f'{cur.name} 暂无可用主动技能')
+                self.log.append(f'{fmt_name(cur)} 暂无可用主动技能')
                 return
-            # 示例：固定把下一位玩家设为技能目标
-            target_idx = (self.game.current_player_idx + 1) % len(self.game.players)
-            target = self.game.players[target_idx]
-            ok, msg = cur.skill_mgr.use_shu(target, 'stay')
-            if ok:
-                self.log.append(msg)
+            if cur.skill_mgr.skills['鼠']['cooldown'] > 0:
+                self.log.append(f'{fmt_name(cur)} 【灵鼠窃运】冷却中')
                 self._scroll_to_bottom()
+                return
+            # 打开选目标弹框
+            self.shu_sub_modal = 'select_target'
+            self.active_modal = 'shu_skill'
+            self.modal_scroll = 0
+            self.draw_info()    # 立即更新
 
         # ---------------- 升级按钮 ----------------
         elif hasattr(self, 'upgrade_skill_btn_rect') and self.upgrade_btn_rect.collidepoint(pos):
             cur = self.game.players[self.game.current_player_idx]
             if cur.zodiac == '鼠':
                 if cur.skill_mgr.upgrade_shu():
-                    self.log.append(f'{cur.name} 升级【灵鼠窃运】成功！')
+                    self.log.append(f'{fmt_name(cur)} 升级【灵鼠窃运】成功！')
                 else:
-                    self.log.append(f'{cur.name} 灵气不足或条件未满足')
+                    self.log.append(f'{fmt_name(cur)} 灵气不足或条件未满足')
                 self._scroll_to_bottom()
+            self.draw_info()    # 立即更新
 
         elif hasattr(self, 'buy_btn_rect') and self.buy_btn_rect.collidepoint(pos):
             cur = self.game.players[self.game.current_player_idx]
@@ -686,6 +701,7 @@ class GameUI:
                 while self.game.log:
                     self.log.append(self.game.log.pop(0))
                     self._scroll_to_bottom()
+            self.draw_info()    # 立即更新
 
         elif hasattr(self, 'upgrade_btn_rect') and self.upgrade_btn_rect.collidepoint(pos):
             cur = self.game.players[self.game.current_player_idx]
@@ -693,20 +709,20 @@ class GameUI:
                 while self.game.log:
                     self.log.append(self.game.log.pop(0))
                     self._scroll_to_bottom()
+            self.draw_info()    # 立即更新
 
         elif hasattr(self, 'end_turn_btn_rect') and self.end_turn_btn_rect.collidepoint(pos):
             self.game.next_turn()
             self.has_rolled = False
-            self.log.append(f'轮到 {self.game.players[self.game.current_player_idx].name}')
+            self.log.append(f'轮到 {fmt_name(self.game.players[self.game.current_player_idx])}')
             self._scroll_to_bottom()
-
-
+            self.draw_info()    # 立即更新
 
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
         if player.status.get('skip_turns', 0) > 0:
             player.status['skip_turns'] -= 1
-            self.log.append(f'{player.name} 休息中，跳过回合。')
+            self.log.append(f'{fmt_name(player)} 休息中，跳过回合。')
             self._scroll_to_bottom()
             self.game.next_turn()
             return
@@ -714,7 +730,7 @@ class GameUI:
         steps = self.game.spin_wheel()
         self._animate_wheel(steps)
         pos = self.game.move_player(player, steps)
-        self.log.append(f'{player.name} 移动至 {pos}')
+        self.log.append(f'{fmt_name(player)} 移动至 {pos}')
         self._scroll_to_bottom()
 
         self.game.after_trigger(player)
@@ -973,6 +989,8 @@ class GameUI:
             self._render_modal_text(content_rect, self._load_modal_text(self.active_modal))
         elif self.active_modal == 'settings':
             self._render_settings(content_rect)
+        elif self.active_modal == 'shu_skill':
+            self._render_shu_skill_modal(content_rect)
 
     def _render_modal_text(self, rect, text):
         font = get_chinese_font(18)
@@ -1014,15 +1032,55 @@ class GameUI:
             self.screen.blit(FONT_SMALL.render(t, True, (80,80,80)), (rect.x, y))
             y += 24
 
+    def _render_shu_skill_modal(self, rect):
+        cur = self.game.players[self.game.current_player_idx]
+        font = get_chinese_font(20)
+        pad = 12
+        y = rect.y + pad
+
+        if self.shu_sub_modal == 'select_target':
+            title = "【灵鼠窃运】请选择目标玩家："
+            self.screen.blit(font.render(title, True, (40, 40, 40)), (rect.x, y))
+            y += font.get_linesize() + 8
+            btn_h = 36
+            for idx, p in enumerate(self.game.players):
+                if p is cur:
+                    continue  # 不能选自己
+                label = f"{fmt_name(p)}"
+                tw = font.render(label, True, (0, 0, 0)).get_width()
+                btn = pygame.Rect(rect.x, y, tw + 20, btn_h)
+                pygame.draw.rect(self.screen, (220, 220, 240), btn, border_radius=6)
+                self.screen.blit(font.render(label, True, (0, 0, 0)),
+                                (rect.x + 10, y + 4))
+                # 缓存按钮区域，供点击
+                setattr(self, f'_shu_target_btn_{idx}', btn)
+                y += btn_h + 6
+
+        elif self.shu_sub_modal == 'select_dir':
+            target = self.shu_target
+            title = f"已选择 {fmt_name(target)}，请选择控制方式："
+            self.screen.blit(font.render(title, True, (40, 40, 40)), (rect.x, y))
+            y += font.get_linesize() + 8
+            choices = [('backward', '反向移动'), ('stay', '原地停留')]
+            btn_h = 36
+            for key, desc in choices:
+                tw = font.render(desc, True, (0, 0, 0)).get_width()
+                btn = pygame.Rect(rect.x, y, tw + 20, btn_h)
+                pygame.draw.rect(self.screen, (220, 220, 240), btn, border_radius=6)
+                self.screen.blit(font.render(desc, True, (0, 0, 0)),
+                                (rect.x + 10, y + 4))
+                setattr(self, f'_shu_dir_btn_{key}', btn)
+                y += btn_h + 6
+
+
     def _modal_handle_click(self, pos):
-        # 仅处理设置滑条
-        w = int(self.width * 0.66)
-        h = int(self.height * 0.7)
-        x = (self.width - w)//2
-        y = (self.height - h)//2
-        content_rect = pygame.Rect(x+16, y+50, w-32, h-66)
         if self.active_modal == 'settings':
-            bar = pygame.Rect(content_rect.x, content_rect.y+28, content_rect.width, 10)
+            w = int(self.width * 0.66)
+            h = int(self.height * 0.7)
+            x = (self.width - w) // 2
+            y = (self.height - h) // 2
+            content_rect = pygame.Rect(x + 16, y + 50, w - 32, h - 66)
+            bar = pygame.Rect(content_rect.x, content_rect.y + 28, content_rect.width, 10)
             if bar.collidepoint(pos):
                 rel = (pos[0] - bar.x) / max(1, bar.width)
                 self.volume = max(0.0, min(1.0, rel))
@@ -1031,6 +1089,30 @@ class GameUI:
                 except Exception:
                     pass
                 return True
+
+        if self.active_modal == 'shu_skill':
+            cur = self.game.players[self.game.current_player_idx]
+            if self.shu_sub_modal == 'select_target':
+                for idx, p in enumerate(self.game.players):
+                    if p is cur:
+                        continue
+                    btn = getattr(self, f'_shu_target_btn_{idx}', None)
+                    if btn and btn.collidepoint(pos):
+                        self.shu_target = p
+                        self.shu_sub_modal = 'select_dir'
+                        return True
+
+            elif self.shu_sub_modal == 'select_dir':
+                for key in ('backward', 'stay'):
+                    btn = getattr(self, f'_shu_dir_btn_{key}', None)
+                    if btn and btn.collidepoint(pos):
+                        ok, msg = cur.skill_mgr.use_shu(self.shu_target, key)
+                        self.log.append(msg)
+                        self._scroll_to_bottom()
+                        self.active_modal = None
+                        self.shu_sub_modal = None
+                        self.draw_info()  # 立即刷新
+                        return True
         return False
 
     def _load_modal_text(self, kind):
