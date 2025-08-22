@@ -67,9 +67,14 @@ class SkillManager:
             'lock_skill': lock_skill
         }
 
-        # 冷却
+        # 若选原地停留，则目标角色立即被禁止转盘
+        if direction == 'stay':
+            target_player.can_move = False
+
+        # 技能冷却
         skill['cooldown'] = 4 if level == SkillLevel.III else 3
         skill['used'] += 1
+
         return True, f"{self.player.name} 对 {target_player.name} 发动【灵鼠窃运】"
 
     def upgrade_shu(self):
@@ -103,27 +108,29 @@ class Player:
         self.split = False
         self.energy = 0
         self.skill_mgr = SkillManager(self)
+        self.clockwise = True          # True=顺时针, False=逆时针
+        self.can_move = True           # False 表示本轮不能转盘
 
     def move_step(self, steps):
-        """被控制时的特殊移动"""
+        """返回最终步数（含方向）"""
+        # 1. 被子鼠控制
         if 'shu_control' in self.status:
             ctrl = self.status['shu_control']
-            if ctrl['turns'] <= 0:
-                self.status.pop('shu_control', None)
-                return steps
+            if ctrl['turns'] > 0:
+                cmd = ctrl['direction']
+                ctrl['turns'] -= 1
+                if ctrl['turns'] == 0:
+                    del self.status['shu_control']
+                if cmd == 'stay':
+                    self.can_move = False
+                    return 0
+                elif cmd == 'backward':
+                    self.clockwise = not self.clockwise
+                    steps = -steps
+                    return steps
 
-            # 执行控制
-            cmd = ctrl['direction']
-            if cmd == 'stay':
-                steps = 0
-            elif cmd == 'backward':
-                steps = -steps
-            # forward 不动
-            ctrl['turns'] -= 1
-            if ctrl['turns'] == 0:
-                self.status.pop('shu_control', None)
-        return steps
-
+        # 2. 正常方向
+        return steps if self.clockwise else -steps
 
 class Tile:
     def __init__(self, idx, name, element=None, price=0, special=None):
@@ -206,24 +213,27 @@ class Game:
         old_pos = player.position
         total_tiles = len(self.board.tiles)
         player.position = (player.position + steps) % total_tiles
-        # 过起点奖励
-        if player.position < old_pos:
+        # 判断是否经过起点（无论顺时针还是逆时针）
+        if steps > 0 and player.position < old_pos:
+            player.money += 5000
+        elif steps < 0 and player.position > old_pos:
             player.money += 5000
         return player.position
 
     def next_turn(self):
-        # 清理上一位玩家的“刚购买”限制
+        # 清理上一位玩家的“刚购买地皮，不能够加盖”的限制
         if self.players:
             prev = self.players[self.current_player_idx]
             if 'just_bought' in prev.status:
                 prev.status.pop('just_bought', None)
+
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
         self.turn += 1
 
         # 每回合结束自动减冷却
         for p in self.players:
             p.skill_mgr.tick_cooldown()
-
+            p.can_move = True          # 恢复可移动状态
 
     # 预留：技能、事件、经济、建筑升级等接口
     def use_skill(self, player, skill_name):

@@ -84,7 +84,7 @@ SKILL_SUMMARY = {
 
 # 技能详细说明（来自 rules.md，精简版）
 SKILL_DETAILS = {
-    '鼠': '灵鼠窃运：指定玩家控制其下回合移动方向，可反向或停留；对隐身无效。冷却3回合。',
+    '鼠': '灵鼠窃运：指定玩家控制其下回合移动方向，可反向或停留，对隐身无效。冷却3回合。',
     '牛': '蛮牛冲撞：本回合摧毁经过路径上所有他人建筑；自身获“业障”3回合（租金+50%）。对土减半。冷却3回合。',
     '虎': '猛虎分身：分身为两个实体2回合，各自独立转盘移动，结束合体。分身受伤加倍。冷却3回合。',
     '兔': '玉兔疾行：下一次转盘结果×2，加速期间无法购买地皮。冷却3回合。',
@@ -133,7 +133,7 @@ def choose_players_ui():
     clock = pygame.time.Clock()
 
     # 基本数据
-    player_count = 1
+    player_count = 2
     zodiac_list = list(ZODIAC_FILES.keys())
     choices = []
 
@@ -196,8 +196,8 @@ class GameUI:
         desired_h = base_grid_h + 2 * margin
         max_h = int(screen_h * 0.90)
         self.log_scroll = 0
-        self.has_rolled = False   # 当前玩家是否已转动罗盘
-        self.hovered_tile = None   # 当前悬停地块索引
+        self.has_rolled = False     # 当前玩家是否已转动罗盘
+        self.hovered_tile = None    # 当前悬停地块索引
         self.shu_target = None      # 子鼠技能：被选中的目标玩家
         self.shu_sub_modal = None   # 'select_target' | 'select_dir'
 
@@ -378,15 +378,17 @@ class GameUI:
         btn_y = max(300, 20 + 2 * (row_h + col_gap))
 
         # 罗盘按钮
-        rolled = self.has_rolled
-        color_spin = (255, 222, 173) if not rolled else (200, 200, 200)
-        text_spin  = (139, 69, 19)   if not rolled else (120, 120, 120)
+        cur_player = self.game.players[self.game.current_player_idx]
+        can_spin = not self.has_rolled and cur_player.can_move
+        color_spin = (255, 222, 173) if can_spin else (200, 200, 200)
+        text_spin  = (139, 69, 19)   if can_spin else (120, 120, 120)
         self.spin_btn_rect = pygame.Rect(info_x+24, btn_y, 140, 44)
         pygame.draw.rect(self.screen, color_spin, self.spin_btn_rect, border_radius=12)
         self.screen.blit(FONT.render('天命罗盘', True, text_spin),
                         (self.spin_btn_rect.x+6, self.spin_btn_rect.y+4))
 
         # 技能按钮
+        rolled = self.has_rolled
         color_skill = (176, 224, 230) if not rolled else (200, 200, 200)
         text_skill  = (25, 25, 112)   if not rolled else (120, 120, 120)
         self.skill_btn_rect = pygame.Rect(info_x+24+160, btn_y, 140, 44)
@@ -661,9 +663,11 @@ class GameUI:
                 self.active_modal = key
                 self.modal_scroll = 0
                 return
+
         if self.spin_btn_rect.collidepoint(pos):
             if not self.has_rolled:        # 本回合尚未转动
                 self.spin_wheel()
+                self.has_rolled = True     # 标记已转动
             else:                          # 已转动，自动进入下一位
                 self.log.append(f'{fmt_name(self.game.players[self.game.current_player_idx])} 本回合已转动罗盘')
                 self._scroll_to_bottom()
@@ -720,6 +724,14 @@ class GameUI:
 
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
+
+        if not player.can_move:
+            reason = "被【灵鼠窃运】禁锢，无法行动" if player.status.get('shu_control', {}).get('direction') == 'stay' else "无法移动"
+            self.log.append(f'{fmt_name(player)} {reason}')
+            self._scroll_to_bottom()
+            self.game.next_turn()
+            return
+
         if player.status.get('skip_turns', 0) > 0:
             player.status['skip_turns'] -= 1
             self.log.append(f'{fmt_name(player)} 休息中，跳过回合。')
@@ -1058,7 +1070,7 @@ class GameUI:
             return
 
         # 3. 计算最小宽高
-        btn_h   = line_h + 18            # 按钮高度：↑ 数值越大，按钮越“高”
+        btn_h   = line_h + 18            # 按钮高度：↑ 数值越大，按钮越"高"
         margins = 2 * pad                # 上下/左右留白：↑ 数值越大，整个弹窗四周空白越多
         w = max(font.render(title, True, (0, 0, 0)).get_width(),   # 标题文字宽度
                 *[font.render(t, True, (0, 0, 0)).get_width()      # 按钮文字宽度
@@ -1068,7 +1080,7 @@ class GameUI:
         # ↑ (len(items)+1) 包含标题行
         # ↑ (btn_h + 10)   每行(按钮+行间距)高度，10 越大 → 行间距越大
         # ↑ margins        上下总留白
-        # 如果想让窗口“更大/更小”，只需微调：
+        # 如果想让窗口"更大/更小"，只需微调：
         #   - btn_h          → 按钮本身高度
         #   - 2*pad + 50     → 左右内边距（w）
         #   - btn_h + 10     → 上下行距（h）
@@ -1094,11 +1106,14 @@ class GameUI:
             pygame.draw.rect(self.screen, (220, 220, 240), btn_rect, border_radius=6)
             self.screen.blit(font.render(text, True, (0, 0, 0)),
                             (btn_rect.x + 10, btn_rect.y + 2))
-            # 缓存点击区域
+            # 缓存点击区域 - 修复：为方向选择使用英文键名
             if self.shu_sub_modal == 'select_target':
                 setattr(self, f'_shu_target_btn_{idx}', btn_rect)
-            else:
-                setattr(self, f'_shu_dir_btn_{text}', btn_rect)
+            else:  # select_dir
+                # 根据中文文本映射到英文键名
+                key_map = {'反向移动': 'backward', '原地停留': 'stay'}
+                key = key_map.get(text, text)
+                setattr(self, f'_shu_dir_btn_{key}', btn_rect)
             y += btn_h + 6
 
     def _modal_handle_click(self, pos):
@@ -1118,8 +1133,10 @@ class GameUI:
                     pass
                 return True
 
+        # ---------- 子鼠技能 ----------
         if self.active_modal == 'shu_skill':
             cur = self.game.players[self.game.current_player_idx]
+            # 1. 选择目标
             if self.shu_sub_modal == 'select_target':
                 for idx, p in enumerate(self.game.players):
                     btn = getattr(self, f'_shu_target_btn_{idx}', None)
@@ -1127,19 +1144,26 @@ class GameUI:
                         if p is cur:
                             return True
                         self.shu_target = p
-                        self.shu_sub_modal = 'select_dir'   # 立即切页
-                        return True                         # 不关闭弹窗
+                        self.shu_sub_modal = 'select_dir'   # 立即切换到方向选择
+                        return True                         # 保持弹窗
 
+            # 2. 选择技能（反向/停留）
             elif self.shu_sub_modal == 'select_dir':
                 for key in ('backward', 'stay'):
                     btn = getattr(self, f'_shu_dir_btn_{key}', None)
                     if btn and btn.collidepoint(pos):
                         ok, msg = cur.skill_mgr.use_shu(self.shu_target, key)
-                        self.log.append(msg)
+                        # 立即追加详细日志
+                        direction_text = "反向移动" if key == 'backward' else "原地停留一回合"
+                        self.log.append(
+                            f"{fmt_name(cur)} 对 {fmt_name(self.shu_target)} 发动【灵鼠窃运】："
+                            f"强制其{direction_text}"
+                        )
                         self._scroll_to_bottom()
+                        # 关闭弹窗，刷新界面
                         self.active_modal = None
                         self.shu_sub_modal = None
-                        self.draw_info()  # 立即刷新
+                        self.draw_info()    # 立即刷新
                         return True
         return False
 
