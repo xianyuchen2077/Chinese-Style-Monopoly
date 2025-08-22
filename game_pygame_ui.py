@@ -3,7 +3,7 @@
 
 import pygame
 import sys
-from game_core import Game, Element
+from game_core import Game, Element, BuildingLevel
 import os
 import math
 
@@ -30,6 +30,12 @@ ZODIAC_COLORS = {
     '鸡': (255, 215, 0),
     '狗': (160, 82, 45),
     '猪': (255, 182, 193),
+}
+
+ZODIAC_FILES = {
+    '鼠': 'shu.png', '牛': 'niu.png', '虎': 'hu.png', '兔': 'tu.png',
+    '龙': 'long.png', '蛇': 'she.png', '马': 'ma.png', '羊': 'yang.png',
+    '猴': 'hou.png', '鸡': 'ji.png', '狗': 'gou.png', '猪': 'zhu.png'
 }
 
 # Five-element fill colors
@@ -113,6 +119,62 @@ try:
 except Exception:
     pass
 
+def choose_players_ui():
+    """简单的人数/生肖选择界面，返回 (人数, [生肖])"""
+    pygame.init()
+    screen = pygame.display.set_mode((500, 400))
+    font = get_chinese_font(24)
+    clock = pygame.time.Clock()
+
+    # 基本数据
+    player_count = 1
+    zodiac_list = list(ZODIAC_FILES.keys())
+    choices = []
+
+    # 控件坐标
+    count_rect = pygame.Rect(200, 80, 100, 40)
+    ok_rect = pygame.Rect(200, 320, 100, 40)
+    zodiac_rects = [pygame.Rect(100 + (i % 6) * 60, 160 + (i // 6) * 60, 50, 50) for i in range(12)]
+
+    while True:
+        screen.fill(BG_COLOR)
+        # 标题
+        title = font.render('请选择人数与生肖', True, BLACK)
+        screen.blit(title, title.get_rect(center=(250, 40)))
+        # 人数
+        pygame.draw.rect(screen, WHITE, count_rect)
+        txt = font.render(str(player_count), True, BLACK)
+        screen.blit(txt, txt.get_rect(center=count_rect.center))
+        # 生肖按钮
+        for i, rect in enumerate(zodiac_rects):
+            col = (220, 220, 220) if zodiac_list[i] in choices else WHITE
+            pygame.draw.rect(screen, col, rect)
+            txt = get_chinese_font(18).render(zodiac_list[i], True, BLACK)
+            screen.blit(txt, txt.get_rect(center=rect.center))
+        # OK按钮
+        pygame.draw.rect(screen, GOLD, ok_rect)
+        ok_txt = font.render('开始', True, BLACK)
+        screen.blit(ok_txt, ok_txt.get_rect(center=ok_rect.center))
+
+        for e in pygame.event.get():
+            if e.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if e.type == pygame.MOUSEBUTTONDOWN:
+                if count_rect.collidepoint(e.pos):
+                    player_count = (player_count % 4) + 1   # 1~4循环
+                elif ok_rect.collidepoint(e.pos) and len(choices) == player_count:
+                    pygame.display.quit()
+                    return player_count, choices[:player_count]
+                else:
+                    for i, rect in enumerate(zodiac_rects):
+                        if rect.collidepoint(e.pos):
+                            if zodiac_list[i] in choices:
+                                choices.remove(zodiac_list[i])
+                            elif len(choices) < player_count:
+                                choices.append(zodiac_list[i])
+        pygame.display.flip()
+        clock.tick(60)
+
 class GameUI:
     def __init__(self):
         # 动态压缩边距/信息区宽度以适配屏幕，不改变格子大小
@@ -124,6 +186,9 @@ class GameUI:
         desired_h = base_grid_h + 2 * margin
         max_h = int(screen_h * 0.90)
         self.log_scroll = 0
+        self.has_rolled = False   # 当前玩家是否已转动罗盘
+        self.hovered_tile = None   # 当前悬停地块索引
+
         if desired_h > max_h:
             margin = max(20, (max_h - base_grid_h) // 2)
         info_width = INFO_WIDTH
@@ -171,26 +236,19 @@ class GameUI:
         return props
 
     def _load_player_sprites(self):
-        # Ensure assets folders exist
-        assets_players = os.path.join(self.base_dir, 'assets', 'players')
-        try:
-            os.makedirs(assets_players, exist_ok=True)
-        except Exception:
-            pass
+        folder = os.path.join(self.base_dir, 'assets', 'Character')
+        os.makedirs(folder, exist_ok=True)
         sprites = []
-        for i, _ in enumerate(self.game.players):
-            # Default naming: player1.png, player2.png, ... in assets/players
-            p = os.path.join(assets_players, f'player{i+1}.png')
-            if os.path.exists(p):
-                try:
-                    img = pygame.image.load(p).convert_alpha()
-                    target = int(CELL_SIZE * 0.8)
-                    img = pygame.transform.smoothscale(img, (target, target))
-                    sprites.append(img)
-                    continue
-                except Exception:
-                    pass
-            sprites.append(None)
+        for player in self.game.players:
+            file_name = ZODIAC_FILES.get(player.zodiac, None)
+            path = os.path.join(folder, file_name) if file_name else None
+            if path and os.path.exists(path):
+                img = pygame.image.load(path).convert_alpha()
+                size = int(CELL_SIZE * 0.8)
+                img = pygame.transform.smoothscale(img, (size, size))
+                sprites.append(img)
+            else:
+                sprites.append(None)
         return sprites
 
     def draw_board(self):
@@ -198,8 +256,8 @@ class GameUI:
         self.screen.fill(BG_COLOR)
         # 顶部菜单栏
         self._draw_top_menu()
-        # 顺时针编号的48格棋盘（13x13外圈）
-        # grid_map[row][col] = 格子编号（0~47），其余为-1
+
+        # 1. 生成格子编号映射
         grid_map = [[-1 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
         idx = 0
         # 上边
@@ -215,75 +273,82 @@ class GameUI:
         for i in range(GRID_SIZE-2, 0, -1):
             grid_map[i][0] = idx; idx += 1
 
+        # 2. 画格子
         for row in range(GRID_SIZE):
             for col in range(GRID_SIZE):
                 idx = grid_map[row][col]
+                if idx == -1:
+                    continue
                 x = self.margin + col * CELL_SIZE
                 y = self.margin + row * CELL_SIZE
                 rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
-                if idx == -1:
-                    continue
-                # Fill by element color
+
+                # 填充颜色 & 边框
                 tile_info = self.tile_props.get(idx, None)
                 base_color = WHITE if tile_info is None else tile_info['color']
                 pygame.draw.rect(self.screen, base_color, rect)
-                # Standard grid line
                 pygame.draw.rect(self.screen, GRID_COLOR, rect, 1)
-                # Special border decoration
+
+                # 特殊边框
                 if tile_info and tile_info.get('special'):
                     border_color = SPECIAL_BORDER_COLORS.get(tile_info['special'], (255, 0, 255))
                     pygame.draw.rect(self.screen, border_color, rect, 4)
-                # Display index badge (top-left, black circle with white index)
-                badge_radius = 10
-                pygame.draw.circle(self.screen, BLACK, (x + 13, y + 13), badge_radius)
+
+                # 左上角编号
+                pygame.draw.circle(self.screen, BLACK, (x + 13, y + 13), 10)
                 idx_text = FONT_INDEX.render(str(idx), True, WHITE)
-                txt_rect = idx_text.get_rect(center=(x + 13, y + 13))
-                self.screen.blit(idx_text, txt_rect)
-                # Display tile name bottom-centered, bold, scaled to fit
+                self.screen.blit(idx_text, idx_text.get_rect(center=(x + 13, y + 13)))
+
+                # 底部名称
                 if tile_info and tile_info.get('name'):
                     name = tile_info['name']
                     max_w = CELL_SIZE - 8
-                    # scale down font size until fits
                     size = 18
                     min_size = 10
                     while size >= min_size:
                         f = get_chinese_font(size)
-                        try:
-                            f.set_bold(True)
-                        except Exception:
-                            pass
-                        test = f.render(name, True, (40,40,40))
-                        if test.get_width() <= max_w:
-                            break
+                        try: f.set_bold(True)
+                        except: pass
+                        test = f.render(name, True, (40, 40, 40))
+                        if test.get_width() <= max_w: break
                         size -= 1
                     name_text = test
                     name_rect = name_text.get_rect(midbottom=(x + CELL_SIZE//2, y + CELL_SIZE - 4))
                     self.screen.blit(name_text, name_rect)
-                # 所有权标记：右上角五角星
+
+                # 所有权五角星
                 tile_obj = self.game.board.tiles[idx]
-                if getattr(tile_obj, 'owner', None) is not None:
-                    owner = tile_obj.owner
-                    star_color = ZODIAC_COLORS.get(owner.zodiac, (255, 215, 0))
-                    cx = x + CELL_SIZE - 14
-                    cy = y + 14
-                    self._draw_star((cx, cy), 8, star_color)
-        # 玩家棋子
+                if tile_obj.owner:
+                    star_color = ZODIAC_COLORS.get(tile_obj.owner.zodiac, GOLD)
+                    self._draw_star((x + CELL_SIZE - 14, y + 14), 8, star_color)
+
+        # 3. 画玩家棋子
         for i, player in enumerate(self.game.players):
-            # 找到玩家所在格子的(row, col)
             pos = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE) if grid_map[r][c] == player.position]
-            if not pos:
-                continue
+            if not pos: continue
             row, col = pos[0]
-            cell_x = self.margin + col * CELL_SIZE
-            cell_y = self.margin + row * CELL_SIZE
-            center_x = cell_x + CELL_SIZE//2
-            center_y = cell_y + CELL_SIZE//2
+            cx = self.margin + col * CELL_SIZE + CELL_SIZE // 2
+            cy = self.margin + row * CELL_SIZE + CELL_SIZE // 2
             sprite = self.player_sprites[i] if i < len(self.player_sprites) else None
-            if sprite is not None:
-                sw, sh = sprite.get_size()
-                self.screen.blit(sprite, sprite.get_rect(center=(center_x, center_y)))
+            if sprite:
+                self.screen.blit(sprite, sprite.get_rect(center=(cx, cy)))
             else:
-                pygame.draw.circle(self.screen, PLAYER_COLORS[i%4], (center_x, center_y), int(CELL_SIZE*0.32))
+                pygame.draw.circle(self.screen, PLAYER_COLORS[i % 4], (cx, cy), int(CELL_SIZE * 0.32))
+
+        # 4. === 地皮悬停检测 ===
+        mouse_pos = pygame.mouse.get_pos()
+        self.hovered_tile = None
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
+                idx = grid_map[row][col]
+                if idx == -1: continue
+                x = self.margin + col * CELL_SIZE
+                y = self.margin + row * CELL_SIZE
+                rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
+                if rect.collidepoint(mouse_pos):
+                    self.hovered_tile = idx
+                    break   # 找到一块即可
+
 
     def draw_info(self):
         # Info area background
@@ -364,21 +429,40 @@ class GameUI:
         # Buttons under boxes
         btn_y = max(300, 20 + 2 * (row_h + col_gap))
         self.spin_btn_rect = pygame.Rect(info_x+24, btn_y, 140, 44)
-        pygame.draw.rect(self.screen, (255, 222, 173), self.spin_btn_rect, border_radius=12)
-        self.screen.blit(FONT.render('天命罗盘', True, (139,69,19)), (self.spin_btn_rect.x+6, self.spin_btn_rect.y+4))
+        # 罗盘按钮
+        rolled = self.has_rolled
+        color_spin = (255, 222, 173) if not rolled else (200, 200, 200)
+        text_spin  = (139, 69, 19)   if not rolled else (120, 120, 120)
+        pygame.draw.rect(self.screen, color_spin, self.spin_btn_rect, border_radius=12)
+        self.screen.blit(FONT.render('天命罗盘', True, text_spin),
+                        (self.spin_btn_rect.x+6, self.spin_btn_rect.y+4))
+
         self.skill_btn_rect = pygame.Rect(info_x+24+160, btn_y, 140, 44)
         pygame.draw.rect(self.screen, (176,224,230), self.skill_btn_rect, border_radius=12)
         self.screen.blit(FONT.render('符咒潜能', True, (25,25,112)), (self.skill_btn_rect.x+6, self.skill_btn_rect.y+4))
-        # Buy/Upgrade buttons
+
+        # === 购买 / 升级按钮 ===
         buy_y = btn_y + 56
         self.buy_btn_rect = pygame.Rect(info_x+24, buy_y, 140, 40)
         self.upgrade_btn_rect = pygame.Rect(info_x+24+160, buy_y, 140, 40)
-        can_buy = self.game.can_buy(self.game.players[self.game.current_player_idx])
-        can_up = self.game.can_upgrade(self.game.players[self.game.current_player_idx])
-        pygame.draw.rect(self.screen, (208,240,192) if can_buy else (200,200,200), self.buy_btn_rect, border_radius=10)
-        self.screen.blit(FONT_SMALL.render('购地', True, (0,100,0) if can_buy else (120,120,120)), (self.buy_btn_rect.x+48, self.buy_btn_rect.y+8))
-        pygame.draw.rect(self.screen, (255,228,196) if can_up else (200,200,200), self.upgrade_btn_rect, border_radius=10)
-        self.screen.blit(FONT_SMALL.render('加盖', True, (139,69,19) if can_up else (120,120,120)), (self.upgrade_btn_rect.x+48, self.upgrade_btn_rect.y+8))
+
+        cur_player = self.game.players[self.game.current_player_idx]
+        buy_ok  = self._can_buy_now(cur_player)
+        up_ok   = self._can_upgrade_now(cur_player)
+
+        # 购买按钮
+        color_buy = (208,240,192) if buy_ok else (200,200,200)
+        text_buy  = (0,100,0)     if buy_ok else (120,120,120)
+        pygame.draw.rect(self.screen, color_buy, self.buy_btn_rect, border_radius=10)
+        self.screen.blit(FONT_SMALL.render('购地', True, text_buy),
+                        (self.buy_btn_rect.x+48, self.buy_btn_rect.y+8))
+
+        # 升级按钮
+        color_up = (255,228,196) if up_ok else (200,200,200)
+        text_up  = (139,69,19)   if up_ok else (120,120,120)
+        pygame.draw.rect(self.screen, color_up, self.upgrade_btn_rect, border_radius=10)
+        self.screen.blit(FONT_SMALL.render('加盖', True, text_up),
+                        (self.upgrade_btn_rect.x+48, self.upgrade_btn_rect.y+8))
 
         # === 日志区域 ===
         log_rect = pygame.Rect(info_x + 16, self.height - 280,
@@ -409,9 +493,84 @@ class GameUI:
             pygame.draw.rect(self.screen, (180, 180, 180),
                             (log_rect.right - 12, bar_y, 8, bar_h))
 
+        # === 地皮悬停详情弹窗 ===
+        if self.hovered_tile is not None:
+            self._draw_tile_tooltip(self.hovered_tile, pygame.mouse.get_pos())
+
         # 模态框覆盖
         if self.active_modal:
             self._draw_modal_overlay()
+
+    def _draw_tile_tooltip(self, idx, mouse_pos):
+        tile = self.game.board.tiles[idx]
+        if tile.special:          # 特殊格子不显示详情
+            return
+
+        # 基本信息
+        name  = tile.name
+        elem  = tile.element.value if tile.element else '无'
+        price = tile.price
+        level = tile.level.value
+        upgrade_cost = self.game.upgrade_cost(tile) if level < 4 else 0
+
+        # 各级租金（按 rules.md）
+        rent_empty = int(price * 0.2)
+        rent_hut   = int(price * 0.5)
+        rent_tile  = int(price * 1.2)
+        rent_inn   = int(price * 2.0)
+        rent_pal   = int(price * 3.5)
+
+        # 特殊效果
+        effects = {
+            Element.GOLD: '宫殿租金+20%',
+            Element.WOOD: '每回合恢复500元气',
+            Element.WATER: '过起点奖励+1000',
+            Element.FIRE: '租金×2 但火灾几率20%',
+            Element.EARTH: '完全免疫破坏'
+        }
+        effect = effects.get(tile.element, '无')
+
+        # 抵押
+        mortgage = price // 2
+
+        # 文本列表
+        lines = [
+            f'【{name}】',
+            f'五行: {elem}',
+            f'等级: {level}/4',
+            f'售价: {price} 金币',
+            f'升级费: {upgrade_cost} 金币' if upgrade_cost else '',
+            f'租金:',
+            f'  空地: {rent_empty}',
+            f'  茅屋: {rent_hut}',
+            f'  瓦房: {rent_tile}',
+            f'  客栈: {rent_inn}',
+            f'  宫殿: {rent_pal}',
+            f'抵押: {mortgage} 金币',
+            f'特效: {effect}'
+        ]
+        lines = [l for l in lines if l]
+
+        # 绘制
+        font = get_chinese_font(16)
+        line_h = font.get_linesize() + 2
+        pad = 8
+        max_w = max(font.render(l, True, (0,0,0)).get_width() for l in lines)
+        tip_w = max_w + pad * 2
+        tip_h = len(lines) * line_h + pad * 2
+
+        # 防止出界
+        px = min(mouse_pos[0] + 12, self.width - tip_w - 6)
+        py = min(mouse_pos[1] + 12, self.height - tip_h - 6)
+        rect = pygame.Rect(px, py, tip_w, tip_h)
+
+        pygame.draw.rect(self.screen, (255, 255, 240), rect, border_radius=8)
+        pygame.draw.rect(self.screen, (180, 180, 150), rect, 1, border_radius=8)
+
+        y = py + pad
+        for line in lines:
+            self.screen.blit(font.render(line, True, (30, 30, 30)), (px + pad, y))
+            y += line_h
 
     def _scroll_to_bottom(self):
         """把日志滚动条拉到最底，始终显示最新"""
@@ -434,21 +593,30 @@ class GameUI:
                 self.modal_scroll = 0
                 return
         if self.spin_btn_rect.collidepoint(pos):
-            self.spin_wheel()
+            if not self.has_rolled:        # 本回合尚未转动
+                self.spin_wheel()
+            else:                         # 已转动，自动进入下一位
+                self.log.append(f'{self.game.players[self.game.current_player_idx].name} 已转完罗盘，轮到下一位')
+                self._scroll_to_bottom()
+                self.game.next_turn()
+                self.has_rolled = False    # 重置标记
+
         elif self.skill_btn_rect.collidepoint(pos):
             self.use_skill()
         elif hasattr(self, 'buy_btn_rect') and self.buy_btn_rect.collidepoint(pos):
             cur = self.game.players[self.game.current_player_idx]
-            if self.game.buy_property(cur):
+            if self._can_buy_now(cur) and self.game.buy_property(cur):
                 while self.game.log:
                     self.log.append(self.game.log.pop(0))
                     self._scroll_to_bottom()
+
         elif hasattr(self, 'upgrade_btn_rect') and self.upgrade_btn_rect.collidepoint(pos):
             cur = self.game.players[self.game.current_player_idx]
-            if self.game.upgrade_building(cur):
+            if self._can_upgrade_now(cur) and self.game.upgrade_building(cur):
                 while self.game.log:
                     self.log.append(self.game.log.pop(0))
                     self._scroll_to_bottom()
+
 
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
@@ -470,6 +638,8 @@ class GameUI:
             self.log.append(self.game.log.pop(0))
         self._scroll_to_bottom()
 
+        self.game.next_turn()
+        self.has_rolled = False            # 正常回合结束，重置
 
     def use_skill(self):
         cur = self.game.players[self.game.current_player_idx]
@@ -629,6 +799,7 @@ class GameUI:
             self.clock.tick(60)
 
     def _draw_top_menu(self):
+        """菜单栏绘制"""
         bar_h = 36
         pygame.draw.rect(self.screen, (50,50,70), (0, 0, self.width, bar_h))
         items = [('rules', '规则'), ('heroes', '英雄'), ('settings', '设置')]
@@ -811,6 +982,25 @@ class GameUI:
         pygame.draw.polygon(self.screen, color, points)
         pygame.draw.polygon(self.screen, (50,50,50), points, 1)
 
+    def _can_buy_now(self, player):
+        tile = self.game.current_tile(player)
+        return (
+            self.game._is_property_tile(tile) and
+            tile.owner is None and
+            player.money >= tile.price
+        )
+
+    def _can_upgrade_now(self, player):
+        tile = self.game.current_tile(player)
+        return (
+            self.game._is_property_tile(tile) and
+            tile.owner is player and
+            tile.level != BuildingLevel.PALACE and
+            not player.status.get('just_bought') and
+            player.money >= self.game.upgrade_cost(tile)
+        )
+
+
     def run(self):
         log_font = get_chinese_font(18)          # 提前拿到字体，供滚轮使用
         line_h   = log_font.get_linesize()
@@ -837,6 +1027,10 @@ class GameUI:
             pygame.display.flip()
             self.clock.tick(60)
 
-
 if __name__ == '__main__':
-    GameUI().run()
+    count, zodiacs = choose_players_ui()
+    pygame.display.init()        # 重新打开主窗口
+    ui = GameUI()
+    ui.game = Game([f"玩家{i+1}" for i in range(count)], zodiacs)
+    ui.player_sprites = ui._load_player_sprites()
+    ui.run()
