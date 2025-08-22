@@ -59,7 +59,7 @@ SPECIAL_BORDER_COLORS = {
 GRID_SIZE = 13
 CELL_SIZE = 60      # 稍微减小，避免与顶部/设置重叠
 MARGIN = 60         # 更大边距
-INFO_WIDTH = 400    # 信息区更宽
+INFO_WIDTH = 500    # 信息区宽
 
 SKILL_SUMMARY = {
     '鼠': '灵鼠窃运（控向/停留）',
@@ -188,6 +188,7 @@ class GameUI:
         self.log_scroll = 0
         self.has_rolled = False   # 当前玩家是否已转动罗盘
         self.hovered_tile = None   # 当前悬停地块索引
+        self.end_turn_btn_rect = pygame.Rect(0, 0, 0, 0)   # 占位，后面再更新位置
 
         if desired_h > max_h:
             margin = max(20, (max_h - base_grid_h) // 2)
@@ -360,6 +361,99 @@ class GameUI:
         cols = 2
         col_w = (self.info_width - (cols + 1) * col_gap) // cols
         row_h = 210
+
+        # 按钮集合
+        btn_y = max(300, 20 + 2 * (row_h + col_gap))
+
+        # 罗盘按钮
+        rolled = self.has_rolled
+        color_spin = (255, 222, 173) if not rolled else (200, 200, 200)
+        text_spin  = (139, 69, 19)   if not rolled else (120, 120, 120)
+        self.spin_btn_rect = pygame.Rect(info_x+24, btn_y, 140, 44)
+        pygame.draw.rect(self.screen, color_spin, self.spin_btn_rect, border_radius=12)
+        self.screen.blit(FONT.render('天命罗盘', True, text_spin),
+                        (self.spin_btn_rect.x+6, self.spin_btn_rect.y+4))
+
+        # 技能按钮
+        color_skill = (176, 224, 230) if not rolled else (200, 200, 200)
+        text_skill  = (25, 25, 112)   if not rolled else (120, 120, 120)
+        self.skill_btn_rect = pygame.Rect(info_x+24+160, btn_y, 140, 44)
+        pygame.draw.rect(self.screen, color_skill, self.skill_btn_rect, border_radius=12)
+        self.screen.blit(FONT.render('符咒潜能', True, text_skill),
+                        (self.skill_btn_rect.x+6, self.skill_btn_rect.y+4))
+
+        # === 第二行：购地 | 加盖 | 进阶 ===
+        buy_y = btn_y + 56
+        btn_w = 90          # 每个按钮宽度
+        gap   = 12          # 按钮间距
+        start_x = info_x + 24
+        cur_player = self.game.players[self.game.current_player_idx]
+
+        # 1. 购地
+        self.buy_btn_rect = pygame.Rect(start_x, buy_y, btn_w, 40)
+        buy_ok = self._can_buy_now(cur_player)
+        color_buy = (208,240,192) if buy_ok else (200,200,200)
+        text_buy  = (0,100,0)     if buy_ok else (120,120,120)
+        pygame.draw.rect(self.screen, color_buy, self.buy_btn_rect, border_radius=10)
+        self.screen.blit(
+            FONT_SMALL.render('购地', True, text_buy),
+            (
+                self.buy_btn_rect.x + (self.buy_btn_rect.width // 2) - (FONT_SMALL.size('购地')[0] // 2),
+                self.buy_btn_rect.y + (self.buy_btn_rect.height // 2) - (FONT_SMALL.size('购地')[1] // 2)
+            )
+        )
+
+        # 2. 加盖
+        self.upgrade_btn_rect = pygame.Rect(start_x + btn_w + gap, buy_y, btn_w, 40)
+        up_ok = self._can_upgrade_now(cur_player)
+        color_up = (255,228,196) if up_ok else (200,200,200)
+        text_up  = (139,69,19)   if up_ok else (120,120,120)
+        pygame.draw.rect(self.screen, color_up, self.upgrade_btn_rect, border_radius=10)
+        self.screen.blit(
+            FONT_SMALL.render('加盖', True, text_up),
+            (
+                self.upgrade_btn_rect.x + (self.upgrade_btn_rect.width // 2) - (FONT_SMALL.size('加盖')[0] // 2),
+                self.upgrade_btn_rect.y + (self.upgrade_btn_rect.height // 2) - (FONT_SMALL.size('加盖')[1] // 2)
+            )
+        )
+
+        # 3. 进阶（技能升级）
+        self.advance_btn_rect = pygame.Rect(start_x + (btn_w + gap) * 2, buy_y, btn_w, 40)
+        can_adv = (cur_player.zodiac == '鼠' and
+                cur_player.skill_mgr.skills['鼠']['level'] != cur_player.skill_mgr.skills['鼠']['level'].__class__.__name__)
+        color_advance = (220,220,220) if can_adv else (200,200,200)
+        text_advance  = (100,50,50)   if can_adv else (120,120,120)
+        pygame.draw.rect(self.screen, color_advance, self.advance_btn_rect, border_radius=10)
+        self.screen.blit(
+            FONT_SMALL.render('进阶', True, text_advance),
+            (
+                self.advance_btn_rect.x + (self.advance_btn_rect.width // 2) - (FONT_SMALL.size('进阶')[0] // 2),
+                self.advance_btn_rect.y + (self.advance_btn_rect.height // 2) - (FONT_SMALL.size('进阶')[1] // 2)
+            )
+        )
+
+        # 回合结束按钮
+        end_y = btn_y
+        color_end = (150, 150, 200)
+        text_end = (115, 251, 253)
+        self.end_turn_btn_rect = pygame.Rect(info_x + 350, end_y, 100, 100)
+        pygame.draw.rect(self.screen, color_end, self.end_turn_btn_rect, border_radius=8)
+        # 大号加粗字体
+        big_font = get_chinese_font(22)
+        try:
+            big_font.set_bold(True)
+        except Exception:
+            pass
+        # 分两行渲染
+        line1 = big_font.render('回合', True, text_end)
+        line2 = big_font.render('结束', True, text_end)
+        # 居中放置
+        center_x = self.end_turn_btn_rect.centerx
+        center_y = self.end_turn_btn_rect.centery
+        self.screen.blit(line1, line1.get_rect(center=(center_x, center_y - 12)))
+        self.screen.blit(line2, line2.get_rect(center=(center_x, center_y + 12)))
+
+
         def render_fit(text, max_w, color, bold=False, base=20, min_size=12):
             for size in range(base, min_size - 1, -1):
                 f = get_chinese_font(size)
@@ -426,43 +520,6 @@ class GameUI:
                 if skill_rect.collidepoint(mouse_pos):
                     detail = SKILL_DETAILS.get(player.zodiac, '')
                     self._draw_tooltip(mouse_pos, detail, max_w=260)
-        # Buttons under boxes
-        btn_y = max(300, 20 + 2 * (row_h + col_gap))
-        self.spin_btn_rect = pygame.Rect(info_x+24, btn_y, 140, 44)
-        # 罗盘按钮
-        rolled = self.has_rolled
-        color_spin = (255, 222, 173) if not rolled else (200, 200, 200)
-        text_spin  = (139, 69, 19)   if not rolled else (120, 120, 120)
-        pygame.draw.rect(self.screen, color_spin, self.spin_btn_rect, border_radius=12)
-        self.screen.blit(FONT.render('天命罗盘', True, text_spin),
-                        (self.spin_btn_rect.x+6, self.spin_btn_rect.y+4))
-
-        self.skill_btn_rect = pygame.Rect(info_x+24+160, btn_y, 140, 44)
-        pygame.draw.rect(self.screen, (176,224,230), self.skill_btn_rect, border_radius=12)
-        self.screen.blit(FONT.render('符咒潜能', True, (25,25,112)), (self.skill_btn_rect.x+6, self.skill_btn_rect.y+4))
-
-        # === 购买 / 升级按钮 ===
-        buy_y = btn_y + 56
-        self.buy_btn_rect = pygame.Rect(info_x+24, buy_y, 140, 40)
-        self.upgrade_btn_rect = pygame.Rect(info_x+24+160, buy_y, 140, 40)
-
-        cur_player = self.game.players[self.game.current_player_idx]
-        buy_ok  = self._can_buy_now(cur_player)
-        up_ok   = self._can_upgrade_now(cur_player)
-
-        # 购买按钮
-        color_buy = (208,240,192) if buy_ok else (200,200,200)
-        text_buy  = (0,100,0)     if buy_ok else (120,120,120)
-        pygame.draw.rect(self.screen, color_buy, self.buy_btn_rect, border_radius=10)
-        self.screen.blit(FONT_SMALL.render('购地', True, text_buy),
-                        (self.buy_btn_rect.x+48, self.buy_btn_rect.y+8))
-
-        # 升级按钮
-        color_up = (255,228,196) if up_ok else (200,200,200)
-        text_up  = (139,69,19)   if up_ok else (120,120,120)
-        pygame.draw.rect(self.screen, color_up, self.upgrade_btn_rect, border_radius=10)
-        self.screen.blit(FONT_SMALL.render('加盖', True, text_up),
-                        (self.upgrade_btn_rect.x+48, self.upgrade_btn_rect.y+8))
 
         # === 日志区域 ===
         log_rect = pygame.Rect(info_x + 16, self.height - 280,
@@ -595,14 +652,34 @@ class GameUI:
         if self.spin_btn_rect.collidepoint(pos):
             if not self.has_rolled:        # 本回合尚未转动
                 self.spin_wheel()
-            else:                         # 已转动，自动进入下一位
-                self.log.append(f'{self.game.players[self.game.current_player_idx].name} 已转完罗盘，轮到下一位')
+            else:                          # 已转动，自动进入下一位
+                self.log.append(f'{self.game.players[self.game.current_player_idx].name} 本回合已转动罗盘')
                 self._scroll_to_bottom()
-                self.game.next_turn()
-                self.has_rolled = False    # 重置标记
 
+        # ---------------- 技能按钮 ----------------
         elif self.skill_btn_rect.collidepoint(pos):
-            self.use_skill()
+            cur = self.game.players[self.game.current_player_idx]
+            if cur.zodiac != '鼠':
+                self.log.append(f'{cur.name} 暂无可用主动技能')
+                return
+            # 示例：固定把下一位玩家设为技能目标
+            target_idx = (self.game.current_player_idx + 1) % len(self.game.players)
+            target = self.game.players[target_idx]
+            ok, msg = cur.skill_mgr.use_shu(target, 'stay')
+            if ok:
+                self.log.append(msg)
+                self._scroll_to_bottom()
+
+        # ---------------- 升级按钮 ----------------
+        elif hasattr(self, 'upgrade_skill_btn_rect') and self.upgrade_btn_rect.collidepoint(pos):
+            cur = self.game.players[self.game.current_player_idx]
+            if cur.zodiac == '鼠':
+                if cur.skill_mgr.upgrade_shu():
+                    self.log.append(f'{cur.name} 升级【灵鼠窃运】成功！')
+                else:
+                    self.log.append(f'{cur.name} 灵气不足或条件未满足')
+                self._scroll_to_bottom()
+
         elif hasattr(self, 'buy_btn_rect') and self.buy_btn_rect.collidepoint(pos):
             cur = self.game.players[self.game.current_player_idx]
             if self._can_buy_now(cur) and self.game.buy_property(cur):
@@ -616,6 +693,13 @@ class GameUI:
                 while self.game.log:
                     self.log.append(self.game.log.pop(0))
                     self._scroll_to_bottom()
+
+        elif hasattr(self, 'end_turn_btn_rect') and self.end_turn_btn_rect.collidepoint(pos):
+            self.game.next_turn()
+            self.has_rolled = False
+            self.log.append(f'轮到 {self.game.players[self.game.current_player_idx].name}')
+            self._scroll_to_bottom()
+
 
 
     def spin_wheel(self):
@@ -637,9 +721,6 @@ class GameUI:
         while self.game.log:
             self.log.append(self.game.log.pop(0))
         self._scroll_to_bottom()
-
-        self.game.next_turn()
-        self.has_rolled = False            # 正常回合结束，重置
 
     def use_skill(self):
         cur = self.game.players[self.game.current_player_idx]

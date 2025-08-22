@@ -18,6 +18,60 @@ class BuildingLevel(Enum):
     INN = 3
     PALACE = 4
 
+# ========================= 技能系统 =========================
+class SkillLevel(Enum):
+    I = 1
+    II = 2
+    III = 3
+
+class SkillManager:
+    """每个玩家自带一个实例，负责冷却、升级与触发"""
+    def __init__(self, player):
+        self.player = player
+        self.skills = {
+            '鼠': {
+                'level': SkillLevel.I,
+                'cooldown': 0,
+                'used': 0
+            }
+        }
+
+    # ------------- 鼠 - 灵鼠窃运 ----------------
+    def use_shu(self, target_player, direction=None):
+        """
+        direction: 'forward' | 'backward' | 'stay'
+        """
+        if self.skills['鼠']['cooldown'] > 0:
+            return False, "技能冷却中"
+
+        level = self.skills['鼠']['level']
+        target_player.status['shu_control'] = {
+            'turns': 2 if level is SkillLevel.III else 1,
+            'direction': direction,
+            'lock_skill': level is not SkillLevel.I
+        }
+
+        # 冷却
+        self.skills['鼠']['cooldown'] = 3 if level is SkillLevel.III else 3
+        self.skills['鼠']['used'] += 1
+        return True, f"{self.player.name} 对 {target_player.name} 发动【灵鼠窃运】"
+
+    def upgrade_shu(self):
+        skill = self.skills['鼠']
+        if skill['level'] is SkillLevel.I and skill['used'] >= 3 and self.player.energy >= 100:
+            skill['level'] = SkillLevel.II
+            self.player.energy -= 100
+            return True
+        if skill['level'] is SkillLevel.II and skill['used'] >= 6 and self.player.energy >= 250:
+            skill['level'] = SkillLevel.III
+            self.player.energy -= 250
+            return True
+        return False
+
+    def tick_cooldown(self):
+        """每回合结束调用"""
+        for k, v in self.skills.items():
+            v['cooldown'] = max(0, v['cooldown'] - 1)
 class Player:
     def __init__(self, name, zodiac, is_ai=False):
         self.name = name
@@ -31,6 +85,28 @@ class Player:
         self.cooldowns = {}
         self.split = False
         self.energy = 0
+        self.skill_mgr = SkillManager(self)
+
+    def move_step(self, steps):
+        """被控制时的特殊移动"""
+        if 'shu_control' in self.status:
+            ctrl = self.status['shu_control']
+            if ctrl['turns'] <= 0:
+                self.status.pop('shu_control', None)
+                return steps
+
+            # 执行控制
+            cmd = ctrl['direction']
+            if cmd == 'stay':
+                steps = 0
+            elif cmd == 'backward':
+                steps = -steps
+            # forward 不动
+            ctrl['turns'] -= 1
+            if ctrl['turns'] == 0:
+                self.status.pop('shu_control', None)
+        return steps
+
 
 class Tile:
     def __init__(self, idx, name, element=None, price=0, special=None):
@@ -126,6 +202,11 @@ class Game:
                 prev.status.pop('just_bought', None)
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
         self.turn += 1
+
+        # 每回合结束自动减冷却
+        for p in self.players:
+            p.skill_mgr.tick_cooldown()
+
 
     # 预留：技能、事件、经济、建筑升级等接口
     def use_skill(self, player, skill_name):
