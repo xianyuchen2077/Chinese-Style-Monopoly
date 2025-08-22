@@ -1032,46 +1032,74 @@ class GameUI:
             self.screen.blit(FONT_SMALL.render(t, True, (80,80,80)), (rect.x, y))
             y += 24
 
-    def _render_shu_skill_modal(self, rect):
+    def _render_shu_skill_modal(self, base_rect):
+        """
+        子鼠技能弹窗：较小、居中、只包内容
+        """
         cur = self.game.players[self.game.current_player_idx]
         font = get_chinese_font(20)
         pad = 12
-        y = rect.y + pad
+        line_h = font.get_linesize()
 
+        # 1. 先画半透明遮罩（防止大白框再出现）
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+
+        # 2. 生成内容
         if self.shu_sub_modal == 'select_target':
-            title = "【灵鼠窃运】请选择目标玩家："
-            self.screen.blit(font.render(title, True, (40, 40, 40)), (rect.x, y))
-            y += font.get_linesize() + 8
-            btn_h = 36
-            for idx, p in enumerate(self.game.players):
-                if p is cur:
-                    continue  # 不能选自己
-                label = f"{fmt_name(p)}"
-                tw = font.render(label, True, (0, 0, 0)).get_width()
-                btn = pygame.Rect(rect.x, y, tw + 20, btn_h)
-                pygame.draw.rect(self.screen, (220, 220, 240), btn, border_radius=6)
-                self.screen.blit(font.render(label, True, (0, 0, 0)),
-                                (rect.x + 10, y + 4))
-                # 缓存按钮区域，供点击
-                setattr(self, f'_shu_target_btn_{idx}', btn)
-                y += btn_h + 6
-
+            title = "选择目标"
+            labels = [fmt_name(p) for p in self.game.players]
+            items = labels
         elif self.shu_sub_modal == 'select_dir':
-            target = self.shu_target
-            title = f"已选择 {fmt_name(target)}，请选择控制方式："
-            self.screen.blit(font.render(title, True, (40, 40, 40)), (rect.x, y))
-            y += font.get_linesize() + 8
-            choices = [('backward', '反向移动'), ('stay', '原地停留')]
-            btn_h = 36
-            for key, desc in choices:
-                tw = font.render(desc, True, (0, 0, 0)).get_width()
-                btn = pygame.Rect(rect.x, y, tw + 20, btn_h)
-                pygame.draw.rect(self.screen, (220, 220, 240), btn, border_radius=6)
-                self.screen.blit(font.render(desc, True, (0, 0, 0)),
-                                (rect.x + 10, y + 4))
-                setattr(self, f'_shu_dir_btn_{key}', btn)
-                y += btn_h + 6
+            title = f"已选 {fmt_name(self.shu_target)}"
+            items = ['反向移动', '原地停留']
+        else:
+            return
 
+        # 3. 计算最小宽高
+        btn_h   = line_h + 18            # 按钮高度：↑ 数值越大，按钮越“高”
+        margins = 2 * pad                # 上下/左右留白：↑ 数值越大，整个弹窗四周空白越多
+        w = max(font.render(title, True, (0, 0, 0)).get_width(),   # 标题文字宽度
+                *[font.render(t, True, (0, 0, 0)).get_width()      # 按钮文字宽度
+                for t in items]) \
+            + 2 * pad + 50                                         # 横向总留白：↑ 50 越大 → 弹窗越宽
+        h = (len(items) + 1) * (btn_h + 15) + margins - 50              # 纵向总高度：
+        # ↑ (len(items)+1) 包含标题行
+        # ↑ (btn_h + 10)   每行(按钮+行间距)高度，10 越大 → 行间距越大
+        # ↑ margins        上下总留白
+        # 如果想让窗口“更大/更小”，只需微调：
+        #   - btn_h          → 按钮本身高度
+        #   - 2*pad + 50     → 左右内边距（w）
+        #   - btn_h + 10     → 上下行距（h）
+        #   - margins        → 四周留白
+
+        # 4. 画弹窗
+        rect = pygame.Rect(0, 0, w, h)
+        rect.center = (self.width // 2, self.height // 2)
+        pygame.draw.rect(self.screen, (250, 250, 255), rect, border_radius=10)
+        pygame.draw.rect(self.screen, (150, 150, 200), rect, 2, border_radius=10)
+
+        # 5. 标题居中
+        tw_title = font.render(title, True, (40, 40, 40)).get_width()
+        y = rect.y + pad
+        self.screen.blit(font.render(title, True, (40, 40, 40)),
+                        (rect.centerx - tw_title // 2, y))
+        y += line_h + 8
+
+        # 6. 按钮居中
+        for idx, text in enumerate(items):
+            tw = font.render(text, True, (0, 0, 0)).get_width()
+            btn_rect = pygame.Rect(rect.centerx - (tw + 20) // 2, y, tw + 20, btn_h)
+            pygame.draw.rect(self.screen, (220, 220, 240), btn_rect, border_radius=6)
+            self.screen.blit(font.render(text, True, (0, 0, 0)),
+                            (btn_rect.x + 10, btn_rect.y + 2))
+            # 缓存点击区域
+            if self.shu_sub_modal == 'select_target':
+                setattr(self, f'_shu_target_btn_{idx}', btn_rect)
+            else:
+                setattr(self, f'_shu_dir_btn_{text}', btn_rect)
+            y += btn_h + 6
 
     def _modal_handle_click(self, pos):
         if self.active_modal == 'settings':
@@ -1094,13 +1122,13 @@ class GameUI:
             cur = self.game.players[self.game.current_player_idx]
             if self.shu_sub_modal == 'select_target':
                 for idx, p in enumerate(self.game.players):
-                    if p is cur:
-                        continue
                     btn = getattr(self, f'_shu_target_btn_{idx}', None)
                     if btn and btn.collidepoint(pos):
+                        if p is cur:
+                            return True
                         self.shu_target = p
-                        self.shu_sub_modal = 'select_dir'
-                        return True
+                        self.shu_sub_modal = 'select_dir'   # 立即切页
+                        return True                         # 不关闭弹窗
 
             elif self.shu_sub_modal == 'select_dir':
                 for key in ('backward', 'stay'):
