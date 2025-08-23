@@ -54,14 +54,31 @@ SKILL_RABBIT = {
     'multiplier': 2        # 当前倍率（I/II=2，III=3）
 }
 
+# ===== 未羊技能数据结构 =====
+SKILL_YANG = {
+    'level': SkillLevel.I,
+    'cooldown': 0,
+    'used': 0,
+    'soul_pos': None,     # 灵魂当前位置
+    'soul_turns': 0,      # 灵魂出窍剩余回合
+    'max_dist': 12        # I/II/III 对应 12/17/23
+}
+
 class SkillManager:
     """每个玩家自带一个实例，负责冷却、升级与触发"""
     def __init__(self, player):
         self.player = player
         self.skills = {
             '鼠': SKILL_SHU.copy(),
-            '兔': SKILL_RABBIT.copy()
+            '兔': SKILL_RABBIT.copy(),
+            '羊': SKILL_YANG.copy()
         }
+
+    def can_use_active_skill(self):
+        z = self.player.zodiac
+        if z in self.skills:
+            return self.skills[z]['cooldown'] == 0
+        return False
 
     # ------------- 统一外部调用接口 ----------------
     def use_active_skill(self, target_list=None, option=None):
@@ -74,6 +91,8 @@ class SkillManager:
             return self.use_shu(target_list, option)
         elif z == '兔':
             return self.use_tu(target_list, option)
+        elif z == '羊':
+            return self.use_yang(target_list, option)
         else:
             return False, "暂无主动技能"
 
@@ -148,6 +167,83 @@ class SkillManager:
             self.player.energy -= 200
             return True
         return False
+
+    # ------------- 羊 - 灵羊出窍 ----------------
+    def use_yang(self, target_list, option=None):
+        """
+        目前 target_list 仅用于接口统一，可忽略
+        option 预留，暂时不处理
+        """
+        skill = self.skills['羊']
+        if skill['cooldown'] > 0:
+            return False, "【灵羊出窍】冷却中"
+        if skill['soul_pos'] is not None:
+            return False, "已有灵魂在外，无法再次出窍"
+
+        level = skill['level']
+        max_dist = {SkillLevel.I: 12, SkillLevel.II: 17, SkillLevel.III: 23}[level]
+        trigger_rate = {SkillLevel.I: 0.05, SkillLevel.II: 0.15, SkillLevel.III: 0.5}[level]
+
+        # 随机向前灵魂移动
+        dice = random.randint(1, 10)
+        steps = min(dice, max_dist)
+        board_len = 48
+        soul_pos = (self.player.position + steps) % board_len
+
+        skill['soul_pos'] = soul_pos
+        skill['soul_turns'] = 3
+        skill['cooldown'] = 5
+        skill['used'] += 1
+
+        # 计算“三阳开泰”
+        dist = self._yang_distance(self.player.position, soul_pos, board_len)
+        tri = random.random() < trigger_rate
+        reward_msg = ""
+        if tri:
+            reward_msg = self._yang_san_yang(self.player, dist)
+
+        msg = f"{fmt_name(self.player)} 发动【灵羊出窍】灵魂前往 {soul_pos} 格，持续3回合"
+        if reward_msg:
+            msg += "；" + reward_msg
+        return True, msg
+
+    # 未羊辅助函数
+    def _yang_distance(self, a, b, total):
+        """顺时针与逆时针取最小距离"""
+        d1 = (b - a) % total
+        d2 = (a - b) % total
+        return min(d1, d2)
+
+    def _yang_san_yang(self, player, dist):
+        """
+        沿最短路径寻找最近无主/可升级地皮
+        返回字符串描述
+        """
+        board = player.game.board
+        path = self._yang_shortest_path(player.position, player.game.board.tiles[player.position], dist)
+        for idx in path[1:]:  # 跳过起点
+            tile = board.tiles[idx]
+            # 无主可买
+            if tile.owner is None and board._is_property_tile(tile) and player.money >= tile.price:
+                tile.owner = player
+                tile.level = BuildingLevel.HUT
+                player.properties.append(idx)
+                return f"触发‘三阳开泰’：免费获得「{tile.name}」"
+            # 已有地皮可升级
+            if tile.owner is player and tile.level != BuildingLevel.PALACE:
+                player.game.upgrade_building(player, tile)
+                return f"触发‘三阳开泰’：免费升级「{tile.name}」"
+        return ""
+
+    def _yang_shortest_path(self, start, tile, dist):
+        """返回最短路径上的格子索引列表（含起点）"""
+        total = len(tile.game.board.tiles)
+        path = []
+        # 优先顺时针
+        forward = [(start + i) % total for i in range(dist + 1)]
+        backward = [(start - i) % total for i in range(dist + 1)]
+        path = forward if len(forward) <= len(backward) else backward
+        return path
 
     def tick_cooldown(self):
         for v in self.skills.values():
@@ -317,6 +413,16 @@ class Game:
             # 清除卯兔加速
             if p.zodiac == '兔':
                 p.skill_mgr.skills['兔']['active'] = False
+            # 未羊灵魂回合倒计时 & 强制传送
+            elif p.zodiac == '羊':
+                skill = p.skill_mgr.skills['羊']
+                if skill['soul_pos'] is not None:
+                    skill['soul_turns'] -= 1
+                    if skill['soul_turns'] <= 0:
+                        # 强制传送到灵魂位置
+                        p.position = skill['soul_pos']
+                        skill['soul_pos'] = None
+                        self.log.append(f"{fmt_name(p)} 灵魂归位，强制传送到 {p.position}")
 
         # 为即将开始回合的玩家减少冷却
         new_current_player = self.players[self.current_player_idx]

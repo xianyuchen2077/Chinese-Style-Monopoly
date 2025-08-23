@@ -389,9 +389,14 @@ class GameUI:
                         (self.spin_btn_rect.x+6, self.spin_btn_rect.y+4))
 
         # 技能按钮
-        rolled = self.has_rolled
-        color_skill = (176, 224, 230) if not rolled else (200, 200, 200)
-        text_skill  = (25, 25, 112)   if not rolled else (120, 120, 120)
+        cur_player = self.game.players[self.game.current_player_idx]
+        can_skill = (
+            not self.has_rolled
+            and cur_player.skill_mgr.can_use_active_skill()
+            and not (cur_player.status.get('shu_control', {}).get('direction') == 'stay')
+        )
+        color_skill = (176, 224, 230) if can_skill else (200, 200, 200)
+        text_skill  = (25, 25, 112)   if can_skill else (120, 120, 120)
         self.skill_btn_rect = pygame.Rect(info_x+24+160, btn_y, 140, 44)
         pygame.draw.rect(self.screen, color_skill, self.skill_btn_rect, border_radius=12)
         self.screen.blit(FONT.render('符咒潜能', True, text_skill),
@@ -680,14 +685,14 @@ class GameUI:
 
         cur = self.game.players[self.game.current_player_idx]
         # ---------------- 罗盘按钮 ----------------
-        # 检查是否被子鼠控制停留，如果是则直接返回，不执行任何操作
-        if 'shu_control' in cur.status and cur.status['shu_control'].get('direction') == 'stay':
-            # 可选：添加提示信息
-            self.log.append(f'{fmt_name(cur)} 被【灵鼠窃运】禁锢，无法行动')
-            self._scroll_to_bottom()
-            return  # 直接返回，不执行后续的罗盘逻辑
-
         if self.spin_btn_rect.collidepoint(pos):
+            # 检查是否被子鼠控制停留，如果是则直接返回，不执行任何操作
+            if 'shu_control' in cur.status and cur.status['shu_control'].get('direction') == 'stay':
+                # 添加提示信息
+                self.log.append(f'{fmt_name(cur)} 被【灵鼠窃运】禁锢，无法行动')
+                self._scroll_to_bottom()
+                return  # 直接返回，不执行后续的罗盘逻辑
+
             if not self.has_rolled:        # 本回合尚未转动
                 self.spin_wheel()
                 self.has_rolled = True     # 标记已转动
@@ -696,20 +701,6 @@ class GameUI:
                 self._scroll_to_bottom()
 
         # ---------------- 技能按钮 ----------------
-        # elif self.skill_btn_rect.collidepoint(pos):
-        #     if cur.zodiac != '鼠':
-        #         self.log.append(f'{fmt_name(cur)} 暂无可用主动技能')
-        #         return
-        #     if cur.skill_mgr.skills['鼠']['cooldown'] > 0:
-        #         self.log.append(f'{fmt_name(cur)} 【灵鼠窃运】冷却中')
-        #         self._scroll_to_bottom()
-        #         return
-        #     # 打开选目标弹框
-        #     self.shu_sub_modal = 'select_target'
-        #     self.active_modal = 'shu_skill'
-        #     self.modal_scroll = 0
-        #     self.draw_info()    # 立即更新
-
         elif self.skill_btn_rect.collidepoint(pos):
             cur = self.game.players[self.game.current_player_idx]
             # 根据生肖自动选择目标逻辑
@@ -722,6 +713,10 @@ class GameUI:
                     self.log.append(f'{fmt_name(cur)} 【灵鼠窃运】冷却中')
             elif cur.zodiac == '兔':
                 # 卯兔无目标
+                ok, msg = cur.skill_mgr.use_active_skill()
+                self.log.append(msg)
+            elif cur.zodiac == '羊':
+                # 未羊无目标
                 ok, msg = cur.skill_mgr.use_active_skill()
                 self.log.append(msg)
             else:
