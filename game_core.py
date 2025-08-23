@@ -64,6 +64,13 @@ SKILL_YANG = {
     'max_dist': 12        # I/II/III 对应 12/17/23
 }
 
+# ===== 酉鸡技能数据结构 =====
+SKILL_JI = {
+    'level': SkillLevel.I,
+    'cooldown': 0,
+    'used': 0
+}
+
 class SkillManager:
     """每个玩家自带一个实例，负责冷却、升级与触发"""
     def __init__(self, player):
@@ -71,7 +78,8 @@ class SkillManager:
         self.skills = {
             '鼠': SKILL_SHU.copy(),
             '兔': SKILL_RABBIT.copy(),
-            '羊': SKILL_YANG.copy()
+            '羊': SKILL_YANG.copy(),
+            '鸡': SKILL_JI.copy()
         }
 
     def can_use_active_skill(self):
@@ -93,6 +101,8 @@ class SkillManager:
             return self.use_tu(target_list, option)
         elif z == '羊':
             return self.use_yang(target_list, option)
+        elif z == '鸡':
+            return self.use_ji(target_list, option)
         else:
             return False, "暂无主动技能"
 
@@ -249,6 +259,108 @@ class SkillManager:
         backward = [(start - i) % total for i in range(dist + 1)]
         return forward if len(forward) <= len(backward) else backward
 
+    # ------------- 鸡 - 金鸡腾翔 ----------------
+    def use_ji(self, target_list=None, option=None) -> tuple[bool, str]:
+        """
+        酉鸡·金鸡腾翔
+        option 必须包含 {'from_idx': int, 'to_idx': int}
+        target_list 保持空，仅为了接口统一
+        """
+        skill = self.skills['鸡']
+        if skill['cooldown'] > 0:
+            return False, "【金鸡腾翔】冷却中"
+
+        # 校验 option
+        if not isinstance(option, dict):
+            return False, "参数格式错误"
+        from_idx = option.get('from_idx')
+        to_idx   = option.get('to_idx')
+        if from_idx is None or to_idx is None:
+            return False, "缺少起飞或降落点"
+
+        board = self.player.game.board
+        total = len(board.tiles)
+
+        def is_public(tile):
+            return tile.owner is None and self.player.game._is_property_tile(tile)
+
+        level = skill['level']
+        # 规则表
+        rules = {
+            SkillLevel.I: {
+                'allow_start': lambda t: t.owner == self.player or is_public(t),
+                'allow_land' : lambda t: t.owner == self.player or is_public(t),
+                'max_corners': 0
+            },
+            SkillLevel.II: {
+                'allow_start': lambda t: t.owner == self.player or is_public(t),
+                'allow_land' : lambda t: t.owner is None and self.player.game._is_property_tile(t),
+                'max_corners': 1
+            },
+            SkillLevel.III: {
+                'allow_start': lambda t: t.owner == self.player or is_public(t),
+                'allow_land' : lambda t: True,
+                'max_corners': 2
+            }
+        }
+        rule = rules[level]
+
+        # 边界与规则校验
+        if not (0 <= from_idx < total and 0 <= to_idx < total):
+            return False, "索引越界"
+        if from_idx == to_idx:
+            return False, "不能原地降落"
+
+        start_tile = board.tiles[from_idx]
+        land_tile  = board.tiles[to_idx]
+        if not rule['allow_start'](start_tile):
+            return False, "起飞点不符合规则"
+        if not rule['allow_land'](land_tile):
+            return False, "降落点不符合规则"
+
+        corners = self._count_corners(from_idx, to_idx, total)
+        if corners > rule['max_corners']:
+            return False, f"跨越拐角({corners})超限"
+
+        # 执行飞行
+        self.player.position = to_idx
+        skill['cooldown'] = 3
+        skill['used'] += 1
+
+        # III 级奖励
+        reward = ""
+        if level == SkillLevel.III and land_tile.owner == self.player:
+            if self.player.game.can_upgrade(self.player, land_tile):
+                self.player.game.upgrade_building(self.player, land_tile)
+                reward = "并免费升级该地皮"
+
+        msg = f"{fmt_name(self.player)} 从 {from_idx} 腾翔至 {to_idx}{reward}"
+        return True, msg
+
+
+    # 计算两格之间的“拐角”数
+    def _count_corners(self, a: int, b: int, total: int) -> int:
+        # 顺时针和逆时针两条路径中，取拐角较少的
+        cw = (b - a) % total
+        ccw = (a - b) % total
+        # 13*4 外圈，每 13 格一个拐角
+        corners_cw = cw // 13
+        corners_ccw = ccw // 13
+        return min(corners_cw, corners_ccw)
+
+    def upgrade_ji(self):
+        skill = self.skills['鸡']
+        lvl, used, eng = skill['level'], skill['used'], self.player.energy
+        if lvl == SkillLevel.I and used >= 3 and eng >= 200:
+            skill['level'] = SkillLevel.II
+            self.player.energy -= 200
+            return True
+        if lvl == SkillLevel.II and used >= 6 and eng >= 400:
+            skill['level'] = SkillLevel.III
+            self.player.energy -= 400
+            return True
+        return False
+
     def tick_cooldown(self):
         for v in self.skills.values():
             v['cooldown'] = max(0, v['cooldown'] - 1)
@@ -372,6 +484,7 @@ class Game:
         # 4. 是否购房、加盖
         pass  # UI层处理
 
+    # 转动转盘
     def spin_wheel(self):
         dice = random.randint(1, 10)
 
@@ -384,6 +497,7 @@ class Game:
 
         return dice
 
+    # 玩家移动
     def move_player(self, player, steps):
         """改进的移动逻辑，正确处理方向和过起点"""
         if steps == 0:
@@ -396,7 +510,6 @@ class Game:
         new_pos = (old_pos + steps) % total_tiles
         if new_pos < 0:
             new_pos = total_tiles + new_pos
-
         player.position = new_pos
 
         # 初始化 passed_start 变量
@@ -450,6 +563,14 @@ class Game:
         # 为即将开始回合的玩家减少冷却
         new_current_player = self.players[self.current_player_idx]
         new_current_player.skill_mgr.tick_cooldown()
+
+    def player_properties(self, player):
+        """返回该玩家拥有的所有地皮对象"""
+        return [self.board.tiles[i] for i in player.properties]
+
+    def public_tiles(self):
+        """返回所有无主且可买地皮"""
+        return [t for t in self.board.tiles if self._is_property_tile(t) and t.owner is None]
 
     # 预留：技能、事件、经济、建筑升级等接口
     def use_skill(self, player, skill_name):

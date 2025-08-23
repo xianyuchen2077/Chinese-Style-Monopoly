@@ -3,7 +3,7 @@
 
 import pygame
 import sys
-from game_core import Game, Element, BuildingLevel
+from game_core import Game, Element, BuildingLevel, EARTHLY_NAMES, SkillLevel
 import os
 import math
 
@@ -15,13 +15,6 @@ BLUE = (135, 206, 250)
 BG_COLOR = (245, 235, 200)
 GRID_COLOR = (80, 80, 80)
 PLAYER_COLORS = [(220,20,60), (30,144,255), (34,139,34), (255,140,0)]
-
-# 生肖→地支名称（用于日志及界面）
-EARTHLY_NAMES = {
-    '鼠': '子鼠', '牛': '丑牛', '虎': '寅虎', '兔': '卯兔',
-    '龙': '辰龙', '蛇': '巳蛇', '马': '午马', '羊': '未羊',
-    '猴': '申猴', '鸡': '酉鸡', '狗': '戌狗', '猪': '亥猪'
-}
 
 # 生肖代表色（用于地皮所有权五角星）
 ZODIAC_COLORS = {
@@ -200,7 +193,8 @@ class GameUI:
         self.hovered_tile = None    # 当前悬停地块索引
         self.shu_target = None      # 子鼠技能：被选中的目标玩家
         self.shu_sub_modal = None   # 'select_target' | 'select_dir'
-
+        self.ji_sub_modal = None   # 'select_from' | 'select_to'
+        self.ji_from = None        # 起飞格
 
         if desired_h > max_h:
             margin = max(20, (max_h - base_grid_h) // 2)
@@ -762,6 +756,18 @@ class GameUI:
                 # 未羊无目标
                 ok, msg = cur.skill_mgr.use_active_skill()
                 self.log.append(msg)
+            elif cur.zodiac == '鸡':
+                # 酉鸡的技能只能在转动罗盘前使用
+                if self.has_rolled:
+                    self.log.append(f'{fmt_name(cur)} 本回合已转动罗盘，无法再使用技能')
+                    self._scroll_to_bottom()
+                    return
+                # 酉鸡无目标
+                if cur.skill_mgr.skills['鸡']['cooldown'] == 0:
+                    self.ji_sub_modal = 'select_from'
+                    self.active_modal = 'ji_skill'
+                else:
+                    self.log.append(f'{fmt_name(cur)} 【金鸡腾翔】冷却中')
             else:
                 self.log.append(f'{fmt_name(cur)} 暂无可用主动技能')
             self._scroll_to_bottom()
@@ -1107,6 +1113,9 @@ class GameUI:
             self._render_settings(content_rect)
         elif self.active_modal == 'shu_skill':
             self._render_shu_skill_modal(content_rect)
+        elif self.active_modal == 'ji_skill':
+            self._render_ji_skill_modal(content_rect)
+
 
     def _render_modal_text(self, rect, text):
         font = get_chinese_font(18)
@@ -1148,11 +1157,49 @@ class GameUI:
             self.screen.blit(FONT_SMALL.render(t, True, (80,80,80)), (rect.x, y))
             y += 24
 
+    def _render_generic_modal(self, title, items, prefix, data_key):
+        font = get_chinese_font(20)
+        pad = 12; line_h = font.get_linesize(); btn_h = line_h + 18
+        w = max(font.render(title, True, (0,0,0)).get_width(),
+                max([font.render(it, True, (0,0,0)).get_width() for it in items])) + 100
+        h = (len(items) + 1) * (btn_h + 10) + 24
+        rect = pygame.Rect(0, 0, w, h)
+        rect.center = (self.width // 2, self.height // 2)
+        pygame.draw.rect(self.screen, (250,250,255), rect, border_radius=10)
+        pygame.draw.rect(self.screen, (150,150,200), rect, 2, border_radius=10)
+
+        tw_title = font.render(title, True, (40,40,40)).get_width()
+        y = rect.y + pad
+        self.screen.blit(font.render(title, True, (40,40,40)),
+                         (rect.centerx - tw_title // 2, y))
+        y += line_h + 8
+
+        for idx, text in enumerate(items):
+            tw = font.render(text, True, (0,0,0)).get_width()
+            btn_rect = pygame.Rect(rect.centerx - (tw + 20) // 2, y, tw + 20, btn_h)
+            pygame.draw.rect(self.screen, (220,220,240), btn_rect, border_radius=6)
+            self.screen.blit(font.render(text, True, (0,0,0)),
+                            (btn_rect.x + 10, btn_rect.y + 2))
+            setattr(self, f'_{prefix}_btn_{idx}', (btn_rect, idx, data_key))
+            y += btn_h + 6
+
     def _render_shu_skill_modal(self, base_rect):
         """
         子鼠技能弹窗：较小、居中、只包内容
         """
-        cur = self.game.players[self.game.current_player_idx]
+        # cur = self.game.players[self.game.current_player_idx]
+        # if self.shu_sub_modal == 'select_target':
+        #     title = "选择目标"
+        #     labels = [fmt_name(p) for p in self.game.players]
+        #     items = labels
+        #     key = 'target'
+        # elif self.shu_sub_modal == 'select_dir':
+        #     title = f"已选 {fmt_name(self.shu_target)}"
+        #     items = ['反向移动', '原地停留']
+        #     key = 'direction'
+        # else:
+        #     return
+        # self._render_generic_modal(title, items, 'shu', key)
         font = get_chinese_font(20)
         pad = 12
         line_h = font.get_linesize()
@@ -1220,6 +1267,34 @@ class GameUI:
                 setattr(self, f'_shu_dir_btn_{key}', btn_rect)
             y += btn_h + 6
 
+    def _render_ji_skill_modal(self, base_rect):
+        cur = self.game.players[self.game.current_player_idx]
+        level = cur.skill_mgr.skills['鸡']['level']
+
+        # 允许起飞/降落的地皮
+        def allow_start(t):
+            return t.owner == cur or (t.owner is None and self.game._is_property_tile(t))
+
+        if self.ji_sub_modal == 'select_from':
+            title = "选择起飞格"
+            tiles = [t for t in self.game.board.tiles if allow_start(t)]
+            key = 'from_idx'
+        elif self.ji_sub_modal == 'select_to':
+            title = "选择降落格"
+            if level == SkillLevel.I:
+                tiles = [t for t in self.game.board.tiles if allow_start(t)]
+            elif level == SkillLevel.II:
+                tiles = [t for t in self.game.board.tiles if t.owner is None and self.game._is_property_tile(t)]
+            else:
+                tiles = [t for t in self.game.board.tiles if self.game._is_property_tile(t)]
+            tiles = [t for t in tiles if t.idx != self.ji_from]
+            key = 'to_idx'
+        else:
+            return
+
+        items = [f"{t.idx} {t.name}" for t in tiles]
+        self._render_generic_modal(title, items, 'ji', key)
+
     def _modal_handle_click(self, pos):
         if self.active_modal == 'settings':
             w = int(self.width * 0.66)
@@ -1269,7 +1344,50 @@ class GameUI:
                         self.shu_sub_modal = None
                         self.draw_info()    # 立即刷新
                         return True
-        return False
+            return False
+
+        # ---------- 酉鸡技能 ----------
+        if self.active_modal == 'ji_skill':
+            cur = self.game.players[self.game.current_player_idx]
+            level = cur.skill_mgr.skills['鸡']['level']
+
+            # 动态收集当前可选格子
+            def allow_start(t):
+                return t.owner == cur or (t.owner is None and self.game._is_property_tile(t))
+
+            if self.ji_sub_modal == 'select_from':
+                tiles = [t for t in self.game.board.tiles if allow_start(t)]
+                next_phase = 'select_to'
+                key = 'from_idx'
+            elif self.ji_sub_modal == 'select_to':
+                if level == SkillLevel.I:
+                    tiles = [t for t in self.game.board.tiles if allow_start(t)]
+                elif level == SkillLevel.II:
+                    tiles = [t for t in self.game.board.tiles if t.owner is None and self.game._is_property_tile(t)]
+                else:
+                    tiles = [t for t in self.game.board.tiles if self.game._is_property_tile(t)]
+                tiles = [t for t in tiles if t.idx != self.ji_from]
+                next_phase = None
+                key = 'to_idx'
+            else:
+                return False
+
+            for idx, tile in enumerate(tiles):
+                btn, i, k = getattr(self, f'_ji_btn_{idx}', (None, None, None))
+                if btn and btn.collidepoint(pos):
+                    if k == 'from_idx':
+                        self.ji_from = tile.idx
+                        self.ji_sub_modal = next_phase
+                        return True
+                    elif k == 'to_idx':
+                        ok, msg = cur.skill_mgr.use_active_skill(option={'from_idx': self.ji_from, 'to_idx': tile.idx})
+                        self.log.append(msg)
+                        self._scroll_to_bottom()
+                        self.active_modal = None
+                        self.ji_sub_modal = None
+                        self.draw_info()
+                        return True
+            return False
 
     def _load_modal_text(self, kind):
         # 从 rules.md 读取全文，或仅显示英雄节选

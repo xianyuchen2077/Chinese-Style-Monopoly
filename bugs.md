@@ -4,3 +4,5 @@ self.has_rolled = False   # 允许再转一次
 即可实现额外回合。
 
 未羊的灵魂跨越起点的时候不会触发奖励
+
+_render_shu_skill_modal这个可不可以简化
