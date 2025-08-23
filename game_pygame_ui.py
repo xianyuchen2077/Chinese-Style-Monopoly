@@ -71,7 +71,7 @@ SKILL_SUMMARY = {
     '鼠': '灵鼠窃运（控向/停留）',
     '牛': '蛮牛冲撞（摧毁途经建筑）',
     '虎': '猛虎分身（双体两回合）',
-    '兔': '玉兔疾行（下次步数×2）',
+    '兔': '玉兔疾行（下次步数×2/×3）',
     '龙': '真龙吐息（喷射强制入院）',
     '蛇': '灵蛇隐踪（隐身3回合）',
     '马': '天马守护（减免负面）',
@@ -468,7 +468,6 @@ class GameUI:
         self.screen.blit(line1, line1.get_rect(center=(center_x, center_y - 12)))
         self.screen.blit(line2, line2.get_rect(center=(center_x, center_y + 12)))
 
-
         def render_fit(text, max_w, color, bold=False, base=20, min_size=12):
             for size in range(base, min_size - 1, -1):
                 f = get_chinese_font(size)
@@ -510,7 +509,8 @@ class GameUI:
             skill_short = SKILL_SUMMARY.get(player.zodiac, '')
             if '（' in skill_short:
                 skill_short = skill_short.split('（')[0]
-            # 修复：正确获取冷却时间
+
+            # 正确获取冷却时间
             cd = 0
             if hasattr(player, 'skill_mgr') and player.zodiac in player.skill_mgr.skills:
                 cd = player.skill_mgr.skills[player.zodiac]['cooldown']
@@ -696,18 +696,26 @@ class GameUI:
                 self._scroll_to_bottom()
 
         # ---------------- 技能按钮 ----------------
+        # elif self.skill_btn_rect.collidepoint(pos):
+        #     if cur.zodiac != '鼠':
+        #         self.log.append(f'{fmt_name(cur)} 暂无可用主动技能')
+        #         return
+        #     if cur.skill_mgr.skills['鼠']['cooldown'] > 0:
+        #         self.log.append(f'{fmt_name(cur)} 【灵鼠窃运】冷却中')
+        #         self._scroll_to_bottom()
+        #         return
+        #     # 打开选目标弹框
+        #     self.shu_sub_modal = 'select_target'
+        #     self.active_modal = 'shu_skill'
+        #     self.modal_scroll = 0
+        #     self.draw_info()    # 立即更新
+
         elif self.skill_btn_rect.collidepoint(pos):
-            if cur.zodiac != '鼠':
-                self.log.append(f'{fmt_name(cur)} 暂无可用主动技能')
-                return
-            if cur.skill_mgr.skills['鼠']['cooldown'] > 0:
-                self.log.append(f'{fmt_name(cur)} 【灵鼠窃运】冷却中')
-                self._scroll_to_bottom()
-                return
-            # 打开选目标弹框
-            self.shu_sub_modal = 'select_target'
-            self.active_modal = 'shu_skill'
-            self.modal_scroll = 0
+            cur = self.game.players[self.game.current_player_idx]
+            # 直接调用统一接口
+            ok, msg = cur.skill_mgr.use_active_skill()
+            self.log.append(msg)
+            self._scroll_to_bottom()
             self.draw_info()    # 立即更新
 
         # ---------------- 升级按钮 ----------------

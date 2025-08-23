@@ -33,21 +33,51 @@ EARTHLY_NAMES = {
     '龙': '辰龙', '蛇': '巳蛇', '马': '午马', '羊': '未羊',
     '猴': '申猴', '鸡': '酉鸡', '狗': '戌狗', '猪': '亥猪'
 }
+
 def fmt_name(player):
     """返回统一格式：[玩家名]角色名"""
     return f"[{player.name}]{EARTHLY_NAMES[player.zodiac]}"
+
+# ===== 子鼠技能数据结构 =====
+SKILL_SHU = {
+    'level': SkillLevel.I,
+    'cooldown': 0,
+    'used': 0
+}
+
+# ===== 卯兔技能数据结构 =====
+SKILL_RABBIT = {
+    'level': SkillLevel.I,
+    'cooldown': 0,
+    'used': 0,
+    'active': False,       # True=已获得加速
+    'multiplier': 2        # 当前倍率（I/II=2，III=3）
+}
 
 class SkillManager:
     """每个玩家自带一个实例，负责冷却、升级与触发"""
     def __init__(self, player):
         self.player = player
         self.skills = {
-            '鼠': {
-                'level': SkillLevel.I,
-                'cooldown': 0,
-                'used': 0
-            }
+            '鼠': SKILL_SHU.copy(),
+            '兔': SKILL_RABBIT.copy()
         }
+
+    # ------------- 统一外部调用接口 ----------------
+    def use_active_skill(self, target_player=None, option=None):
+        """
+        根据玩家生肖自动路由到对应技能
+        target_player: 子鼠/狗等需要目标时传入
+        option:        子鼠方向/兔倍率等额外参数
+        """
+        z = self.player.zodiac
+        if z == '鼠':
+            return self.use_shu(target_player, option)
+        elif z == '兔':
+            return self.use_tu()
+        # 后续其它生肖直接 elif 扩展
+        else:
+            return False, "暂无主动技能"
 
     # ------------- 鼠 - 灵鼠窃运 ----------------
     def use_shu(self, target_player, direction):
@@ -56,7 +86,7 @@ class SkillManager:
         """
         skill = self.skills['鼠']
         if skill['cooldown'] > 0:
-            return False, "技能冷却中"
+            return False, "【灵鼠窃运】技能冷却中"
 
         level = skill['level']
         turns = 2 if level == SkillLevel.III else 1
@@ -93,6 +123,30 @@ class SkillManager:
             return True
         return False
 
+    # ------------- 兔 - 玉兔疾行 ----------------
+    def use_tu(self):
+        skill = self.skills['兔']
+        if skill['cooldown'] > 0:
+            return False, "玉兔疾行冷却中"
+        skill['active'] = True
+        skill['cooldown'] = 3
+        skill['used'] += 1
+        return True, f"{self.player.name} 发动【玉兔疾行】加速{skill['multiplier']}倍"
+
+    def upgrade_tu(self):
+        skill = self.skills['兔']
+        lvl, used, eng = skill['level'], skill['used'], self.player.energy
+        if lvl == SkillLevel.I and used >= 3 and eng >= 100:
+            skill['level'] = SkillLevel.II
+            self.player.energy -= 100
+            return True
+        if lvl == SkillLevel.II and used >= 6 and eng >= 200:
+            skill['level'] = SkillLevel.III
+            skill['multiplier'] = 3
+            self.player.energy -= 200
+            return True
+        return False
+
     def tick_cooldown(self):
         for v in self.skills.values():
             v['cooldown'] = max(0, v['cooldown'] - 1)
@@ -126,7 +180,13 @@ class Player:
                 self.can_move = False
                 return 0
 
-        # 2. 正常方向移动（使用玩家当前的clockwise状态）
+        # 2. 卯兔加速
+        if self.zodiac == '兔':
+            skill = self.skill_mgr.skills['兔']
+            if skill['active']:
+                steps *= skill['multiplier']
+
+        # 3. 正常方向移动（使用玩家当前的clockwise状态）
         return steps if self.clockwise else -steps
 
 class Tile:
@@ -252,6 +312,9 @@ class Game:
         # 恢复所有玩家的移动能力
         for p in self.players:
             p.can_move = True
+            # 清除卯兔加速
+            if p.zodiac == '兔':
+                p.skill_mgr.skills['兔']['active'] = False
 
         # 为即将开始回合的玩家减少冷却
         new_current_player = self.players[self.current_player_idx]
