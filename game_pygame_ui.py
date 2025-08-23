@@ -348,6 +348,42 @@ class GameUI:
             else:
                 pygame.draw.circle(self.screen, PLAYER_COLORS[i % 4], (cx, cy), int(CELL_SIZE * 0.32))
 
+            # ---------- 仅未羊灵魂出窍时绘制半透明灵魂 ----------
+            if player.zodiac == '羊':
+                skill = player.skill_mgr.skills['羊']
+                soul = skill['soul_pos']
+                if soul is not None and soul != player.position:
+                    soul_pos = [(r, c)
+                                for r in range(GRID_SIZE)
+                                for c in range(GRID_SIZE)
+                                if grid_map[r][c] == soul]
+                    if soul_pos:
+                        sr, sc = soul_pos[0]
+                        sx = self.margin + sc * CELL_SIZE + CELL_SIZE // 2
+                        sy = self.margin + sr * CELL_SIZE + CELL_SIZE // 2
+                        # 创建半透明副本
+                        ghost = sprite.copy() if sprite else None
+
+                        # 透明度（0 = 全透明，255 = 完全不透明）
+                        alpha = 200
+                        if ghost:
+                            ghost.set_alpha(alpha)
+                            self.screen.blit(ghost, ghost.get_rect(center=(sx, sy)))
+                        else:
+                            # 没有图片资源时画半透明圆
+                            ghost_surf = pygame.Surface(
+                                (int(CELL_SIZE * 0.64), int(CELL_SIZE * 0.64)),
+                                pygame.SRCALPHA
+                            )
+                            pygame.draw.circle(
+                                ghost_surf,
+                                (*PLAYER_COLORS[i % 4], alpha),
+                                (int(CELL_SIZE * 0.32), int(CELL_SIZE * 0.32)),
+                                int(CELL_SIZE * 0.32)
+                            )
+                            self.screen.blit(ghost_surf,
+                                            ghost_surf.get_rect(center=(sx, sy)))
+
         # 4. === 地皮悬停检测 ===
         mouse_pos = pygame.mouse.get_pos()
         self.hovered_tile = None
@@ -399,7 +435,8 @@ class GameUI:
         text_skill  = (25, 25, 112)   if can_skill else (120, 120, 120)
         self.skill_btn_rect = pygame.Rect(info_x+24+160, btn_y, 140, 44)
         pygame.draw.rect(self.screen, color_skill, self.skill_btn_rect, border_radius=12)
-        self.screen.blit(FONT.render('符咒潜能', True, text_skill),
+        skill_text = '灵魂归位' if cur_player.zodiac == '羊' and cur_player.skill_mgr.skills['羊']['soul_pos'] else '符咒潜能'
+        self.screen.blit(FONT.render(skill_text, True, text_skill),
                         (self.skill_btn_rect.x+6, self.skill_btn_rect.y+4))
 
         # === 第二行：购地 | 加盖 | 进阶 ===
@@ -703,6 +740,7 @@ class GameUI:
         # ---------------- 技能按钮 ----------------
         elif self.skill_btn_rect.collidepoint(pos):
             cur = self.game.players[self.game.current_player_idx]
+
             # 根据生肖自动选择目标逻辑
             if cur.zodiac == '鼠':
                 # 子鼠需要弹窗选目标
@@ -716,6 +754,11 @@ class GameUI:
                 ok, msg = cur.skill_mgr.use_active_skill()
                 self.log.append(msg)
             elif cur.zodiac == '羊':
+                # 未羊的技能只能在转动罗盘前使用
+                if self.has_rolled:
+                    self.log.append(f'{fmt_name(cur)} 本回合已转动罗盘，无法再使用技能')
+                    self._scroll_to_bottom()
+                    return
                 # 未羊无目标
                 ok, msg = cur.skill_mgr.use_active_skill()
                 self.log.append(msg)
@@ -789,7 +832,10 @@ class GameUI:
 
         # 详细的移动日志
         if final_steps == 0:
-            self.log.append(f'{fmt_name(player)} 被迫停留在原地')
+            if player.zodiac == '羊' and player.skill_mgr.skills['羊']['soul_pos'] is not None:
+                self.log.append(f'{fmt_name(player)} 本体留在原地')
+            else:
+                self.log.append(f'{fmt_name(player)} 被迫停留在原地')
         elif final_steps > 0:
             self.log.append(f'{fmt_name(player)} 顺时针移动{final_steps}步：{old_pos} → {new_pos}')
         else:

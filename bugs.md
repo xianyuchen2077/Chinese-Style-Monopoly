@@ -3,5 +3,4 @@
 self.has_rolled = False   # 允许再转一次
 即可实现额外回合。
 
-技能是有错误的
-那个判定用的是self.has_rolled
+未羊的灵魂跨越起点的时候不会触发奖励
