@@ -64,26 +64,27 @@ class SkillManager:
         }
 
     # ------------- 统一外部调用接口 ----------------
-    def use_active_skill(self, target_player=None, option=None):
+    def use_active_skill(self, target_list=None, option=None):
         """
-        根据玩家生肖自动路由到对应技能
-        target_player: 子鼠/狗等需要目标时传入
-        option:        子鼠方向/兔倍率等额外参数
+        target_list: list[Player] 可为空/单/多
+        option:      额外参数
         """
         z = self.player.zodiac
         if z == '鼠':
-            return self.use_shu(target_player, option)
+            return self.use_shu(target_list, option)
         elif z == '兔':
-            return self.use_tu()
-        # 后续其它生肖直接 elif 扩展
+            return self.use_tu(target_list, option)
         else:
             return False, "暂无主动技能"
 
     # ------------- 鼠 - 灵鼠窃运 ----------------
-    def use_shu(self, target_player, direction):
+    def use_shu(self, target_list, direction):
         """
         direction: 'backward' | 'stay'
         """
+        if not target_list:
+            return False, "未选择目标"
+
         skill = self.skills['鼠']
         if skill['cooldown'] > 0:
             return False, "【灵鼠窃运】技能冷却中"
@@ -92,23 +93,24 @@ class SkillManager:
         turns = 2 if level == SkillLevel.III else 1
         lock_skill = level != SkillLevel.I  # II 以上封锁技能
 
-        if direction == 'backward':
-            # 永久改变目标玩家的移动方向
-            target_player.clockwise = not target_player.clockwise
-        elif direction == 'stay':
-            # 临时禁止移动1回合
-            target_player.status['shu_control'] = {
-                'turns': 1,
-                'direction': 'stay',
-                'lock_skill': lock_skill
-            }
-            target_player.can_move = False
+        # 支持多目标
+        for target in target_list:
+            if direction == 'backward':
+                target.clockwise = not target.clockwise
+            elif direction == 'stay':
+                target.status['shu_control'] = {
+                    'turns': turns,
+                    'direction': 'stay',
+                    'lock_skill': lock_skill
+                }
+                target.can_move = False
 
         # 技能冷却
         skill['cooldown'] = 4 if level == SkillLevel.III else 3
         skill['used'] += 1
 
-        return True, f"{self.player.name} 对 {target_player.name} 发动【灵鼠窃运】"
+        names = ",".join(fmt_name(p) for p in target_list)
+        return True, f"{self.player.name} 对 [{names}] 发动【灵鼠窃运】"
 
     def upgrade_shu(self):
         skill = self.skills['鼠']
@@ -124,10 +126,10 @@ class SkillManager:
         return False
 
     # ------------- 兔 - 玉兔疾行 ----------------
-    def use_tu(self):
+    def use_tu(self, target_list=None, option=None):
         skill = self.skills['兔']
         if skill['cooldown'] > 0:
-            return False, "玉兔疾行冷却中"
+            return False, "【玉兔疾行】冷却中"
         skill['active'] = True
         skill['cooldown'] = 3
         skill['used'] += 1

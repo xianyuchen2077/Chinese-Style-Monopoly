@@ -712,9 +712,20 @@ class GameUI:
 
         elif self.skill_btn_rect.collidepoint(pos):
             cur = self.game.players[self.game.current_player_idx]
-            # 直接调用统一接口
-            ok, msg = cur.skill_mgr.use_active_skill()
-            self.log.append(msg)
+            # 根据生肖自动选择目标逻辑
+            if cur.zodiac == '鼠':
+                # 子鼠需要弹窗选目标
+                if cur.skill_mgr.skills['鼠']['cooldown'] == 0:
+                    self.shu_sub_modal = 'select_target'
+                    self.active_modal = 'shu_skill'
+                else:
+                    self.log.append(f'{fmt_name(cur)} 【灵鼠窃运】冷却中')
+            elif cur.zodiac == '兔':
+                # 卯兔无目标
+                ok, msg = cur.skill_mgr.use_active_skill()
+                self.log.append(msg)
+            else:
+                self.log.append(f'{fmt_name(cur)} 暂无可用主动技能')
             self._scroll_to_bottom()
             self.draw_info()    # 立即更新
 
@@ -1204,7 +1215,7 @@ class GameUI:
                 for key in ('backward', 'stay'):
                     btn = getattr(self, f'_shu_dir_btn_{key}', None)
                     if btn and btn.collidepoint(pos):
-                        ok, msg = cur.skill_mgr.use_shu(self.shu_target, key)
+                        ok, msg = cur.skill_mgr.use_shu([self.shu_target], key)
                         # 立即追加详细日志
                         direction_text = "反向移动" if key == 'backward' else "原地停留一回合"
                         self.log.append(
