@@ -1,6 +1,7 @@
 # game_core.py
 # 游戏核心逻辑模块
 
+from code import interact
 import random
 from enum import Enum
 
@@ -61,14 +62,16 @@ class SkillManager:
         turns = 2 if level == SkillLevel.III else 1
         lock_skill = level != SkillLevel.I  # II 以上封锁技能
 
-        target_player.status['shu_control'] = {
-            'turns': turns,
-            'direction': direction,
-            'lock_skill': lock_skill
-        }
-
-        # 若选原地停留，则目标角色立即被禁止转盘
-        if direction == 'stay':
+        if direction == 'backward':
+            # 永久改变目标玩家的移动方向
+            target_player.clockwise = not target_player.clockwise
+        elif direction == 'stay':
+            # 临时禁止移动1回合
+            target_player.status['shu_control'] = {
+                'turns': 1,
+                'direction': 'stay',
+                'lock_skill': lock_skill
+            }
             target_player.can_move = False
 
         # 技能冷却
@@ -113,23 +116,17 @@ class Player:
 
     def move_step(self, steps):
         """返回最终步数（含方向）"""
-        # 1. 被子鼠控制
+        # 1. 被子鼠控制停留
         if 'shu_control' in self.status:
             ctrl = self.status['shu_control']
-            if ctrl['turns'] > 0:
-                cmd = ctrl['direction']
+            if ctrl['turns'] > 0 and ctrl['direction'] == 'stay':
                 ctrl['turns'] -= 1
                 if ctrl['turns'] == 0:
                     del self.status['shu_control']
-                if cmd == 'stay':
-                    self.can_move = False
-                    return 0
-                elif cmd == 'backward':
-                    self.clockwise = not self.clockwise
-                    steps = -steps
-                    return steps
+                self.can_move = False
+                return 0
 
-        # 2. 正常方向
+        # 2. 正常方向移动（使用玩家当前的clockwise状态）
         return steps if self.clockwise else -steps
 
 class Tile:
@@ -210,30 +207,55 @@ class Game:
         return random.randint(1, 10)
 
     def move_player(self, player, steps):
+        """改进的移动逻辑，正确处理方向和过起点"""
+        if steps == 0:
+            return player.position
+
         old_pos = player.position
         total_tiles = len(self.board.tiles)
-        player.position = (player.position + steps) % total_tiles
-        # 判断是否经过起点（无论顺时针还是逆时针）
-        if steps > 0 and player.position < old_pos:
+
+        # 计算新位置
+        new_pos = (old_pos + steps) % total_tiles
+        if new_pos < 0:
+            new_pos = total_tiles + new_pos
+
+        player.position = new_pos
+
+        # 初始化 passed_start 变量
+        passed_start = False
+
+        # 判断是否经过起点获得奖励
+        if steps > 0:  # 正向移动
+            # 检查是否跨越了起点：从非0位置移动后经过了0位置
+            if old_pos != 0 and (old_pos + steps >= total_tiles):
+                passed_start = True
+        elif steps < 0:  # 反向移动
+            # 检查是否跨越了起点：从非0位置移动后经过了0位置
+            if old_pos != 0 and (old_pos + steps < 0):
+                passed_start = True
+
+        if passed_start:
             player.money += 5000
-        elif steps < 0 and player.position > old_pos:
-            player.money += 5000
+            self.log.append(f'{fmt_name(player)} 经过起点，获得5000金币！')
+
         return player.position
 
     def next_turn(self):
-        # 清理上一位玩家的“刚购买地皮，不能够加盖”的限制
-        if self.players:
-            prev = self.players[self.current_player_idx]
-            if 'just_bought' in prev.status:
-                prev.status.pop('just_bought', None)
+        # 清理上一位玩家的"刚购买地皮，不能够加盖"的限制
+        current_player = self.players[self.current_player_idx]
+        if 'just_bought' in current_player.status:
+            current_player.status.pop('just_bought', None)
 
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
         self.turn += 1
 
-        # 每回合结束自动减冷却
+        # 恢复所有玩家的移动能力
         for p in self.players:
-            p.skill_mgr.tick_cooldown()
-            p.can_move = True          # 恢复可移动状态
+            p.can_move = True
+
+        # 为即将开始回合的玩家减少冷却
+        new_current_player = self.players[self.current_player_idx]
+        new_current_player.skill_mgr.tick_cooldown()
 
     # 预留：技能、事件、经济、建筑升级等接口
     def use_skill(self, player, skill_name):
@@ -243,8 +265,8 @@ class Game:
         # 简易奇遇系统：根据格子五行或特殊类型触发效果
         tile = self.board.tiles[player.position]
         if tile.special == 'start':
-            self.log.append(f'{fmt_name(player)} 踏上起点，精神一振，获得500金币。')
-            player.money += 500
+            # self.log.append(f'{fmt_name(player)} 踏上起点，精神一振，获得500金币。')
+            # player.money += 500
             return
         if tile.special == 'hospital':
             self.log.append(f'{fmt_name(player)} 进入太医院，休养生息，支付800金币。')

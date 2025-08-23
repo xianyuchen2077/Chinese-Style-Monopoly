@@ -379,7 +379,8 @@ class GameUI:
 
         # 罗盘按钮
         cur_player = self.game.players[self.game.current_player_idx]
-        can_spin = not self.has_rolled and cur_player.can_move
+        is_controlled = 'shu_control' in cur_player.status and cur_player.status['shu_control'].get('direction') == 'stay'
+        can_spin = not self.has_rolled and cur_player.can_move and not is_controlled
         color_spin = (255, 222, 173) if can_spin else (200, 200, 200)
         text_spin  = (139, 69, 19)   if can_spin else (120, 120, 120)
         self.spin_btn_rect = pygame.Rect(info_x+24, btn_y, 140, 44)
@@ -484,6 +485,7 @@ class GameUI:
             except Exception:
                 pass
             return f.render(text, True, color)
+
         for idx, player in enumerate(self.game.players[:4]):
             col = idx % cols
             row = idx // cols
@@ -508,11 +510,22 @@ class GameUI:
             skill_short = SKILL_SUMMARY.get(player.zodiac, '')
             if '（' in skill_short:
                 skill_short = skill_short.split('（')[0]
-            # 冷却信息与状态（简易展示）
-            cd = player.cooldowns.get(player.zodiac, 0) if hasattr(player, 'cooldowns') else 0
+            # 修复：正确获取冷却时间
+            cd = 0
+            if hasattr(player, 'skill_mgr') and player.zodiac in player.skill_mgr.skills:
+                cd = player.skill_mgr.skills[player.zodiac]['cooldown']
+
+            # 正确获取状态信息
             positive = 'shield' in player.status if hasattr(player, 'status') else False
             negative = 'skip_turns' in player.status if hasattr(player, 'status') else False
-            attr_text = f"状态：{'护盾 ' if positive else ''}{'休息 ' if negative else ''}".strip()
+            shu_controlled = 'shu_control' in player.status if hasattr(player, 'status') else False
+
+            status_parts = []
+            if positive: status_parts.append('护盾')
+            if negative: status_parts.append('休息')
+            if shu_controlled: status_parts.append('被控')
+            attr_text = f"状态：{' '.join(status_parts)}" if status_parts else "状态：正常"
+
             items = [
                 (f"金币：{player.money}", BLACK),
                 (f"位置：{player.position}", BLACK),
@@ -528,6 +541,7 @@ class GameUI:
                 if t.startswith('技能：'):
                     skill_rect = pygame.Rect(pos[0], pos[1], surf.get_width(), surf.get_height())
                 y0 += surf.get_height() + line_gap
+
             # 鼠标悬停技能提示
             if skill_rect and skill_short:
                 mouse_pos = pygame.mouse.get_pos()
@@ -664,17 +678,25 @@ class GameUI:
                 self.modal_scroll = 0
                 return
 
+        cur = self.game.players[self.game.current_player_idx]
+        # ---------------- 罗盘按钮 ----------------
+        # 检查是否被子鼠控制停留，如果是则直接返回，不执行任何操作
+        if 'shu_control' in cur.status and cur.status['shu_control'].get('direction') == 'stay':
+            # 可选：添加提示信息
+            self.log.append(f'{fmt_name(cur)} 被【灵鼠窃运】禁锢，无法行动')
+            self._scroll_to_bottom()
+            return  # 直接返回，不执行后续的罗盘逻辑
+
         if self.spin_btn_rect.collidepoint(pos):
             if not self.has_rolled:        # 本回合尚未转动
                 self.spin_wheel()
                 self.has_rolled = True     # 标记已转动
             else:                          # 已转动，自动进入下一位
-                self.log.append(f'{fmt_name(self.game.players[self.game.current_player_idx])} 本回合已转动罗盘')
+                self.log.append(f'{fmt_name(cur)} 本回合已转动罗盘')
                 self._scroll_to_bottom()
 
         # ---------------- 技能按钮 ----------------
         elif self.skill_btn_rect.collidepoint(pos):
-            cur = self.game.players[self.game.current_player_idx]
             if cur.zodiac != '鼠':
                 self.log.append(f'{fmt_name(cur)} 暂无可用主动技能')
                 return
@@ -690,7 +712,6 @@ class GameUI:
 
         # ---------------- 升级按钮 ----------------
         elif hasattr(self, 'upgrade_skill_btn_rect') and self.upgrade_btn_rect.collidepoint(pos):
-            cur = self.game.players[self.game.current_player_idx]
             if cur.zodiac == '鼠':
                 if cur.skill_mgr.upgrade_shu():
                     self.log.append(f'{fmt_name(cur)} 升级【灵鼠窃运】成功！')
@@ -700,7 +721,6 @@ class GameUI:
             self.draw_info()    # 立即更新
 
         elif hasattr(self, 'buy_btn_rect') and self.buy_btn_rect.collidepoint(pos):
-            cur = self.game.players[self.game.current_player_idx]
             if self._can_buy_now(cur) and self.game.buy_property(cur):
                 while self.game.log:
                     self.log.append(self.game.log.pop(0))
@@ -708,19 +728,21 @@ class GameUI:
             self.draw_info()    # 立即更新
 
         elif hasattr(self, 'upgrade_btn_rect') and self.upgrade_btn_rect.collidepoint(pos):
-            cur = self.game.players[self.game.current_player_idx]
             if self._can_upgrade_now(cur) and self.game.upgrade_building(cur):
                 while self.game.log:
                     self.log.append(self.game.log.pop(0))
                     self._scroll_to_bottom()
             self.draw_info()    # 立即更新
 
+        # ---------------- 回合结束按钮 ----------------
         elif hasattr(self, 'end_turn_btn_rect') and self.end_turn_btn_rect.collidepoint(pos):
             self.game.next_turn()
             self.has_rolled = False
-            self.log.append(f'轮到 {fmt_name(self.game.players[self.game.current_player_idx])}')
+            # 新的当前玩家
+            new_player = self.game.players[self.game.current_player_idx]
+            self.log.append(f'轮到 {fmt_name(new_player)}')
             self._scroll_to_bottom()
-            self.draw_info()    # 立即更新
+            self.draw_info()
 
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
@@ -729,22 +751,44 @@ class GameUI:
             reason = "被【灵鼠窃运】禁锢，无法行动" if player.status.get('shu_control', {}).get('direction') == 'stay' else "无法移动"
             self.log.append(f'{fmt_name(player)} {reason}')
             self._scroll_to_bottom()
-            self.game.next_turn()
             return
 
         if player.status.get('skip_turns', 0) > 0:
             player.status['skip_turns'] -= 1
             self.log.append(f'{fmt_name(player)} 休息中，跳过回合。')
             self._scroll_to_bottom()
-            self.game.next_turn()
+            self.game.next_turn()   # 休息回合，无法进行任何操作
             return
 
-        steps = self.game.spin_wheel()
-        self._animate_wheel(steps)
-        pos = self.game.move_player(player, steps)
-        self.log.append(f'{fmt_name(player)} 移动至 {pos}')
+        # 获取骰子结果
+        dice_result = self.game.spin_wheel()
+        self._animate_wheel(dice_result)
+
+        # 通过Player的move_step方法处理方向和控制效果
+        final_steps = player.move_step(dice_result)
+
+        # 记录移动前的位置用于日志
+        old_pos = player.position
+
+        # 执行移动
+        new_pos = self.game.move_player(player, final_steps)
+
+        # 详细的移动日志
+        if final_steps == 0:
+            self.log.append(f'{fmt_name(player)} 被迫停留在原地')
+        elif final_steps > 0:
+            self.log.append(f'{fmt_name(player)} 顺时针移动{final_steps}步：{old_pos} → {new_pos}')
+        else:
+            self.log.append(f'{fmt_name(player)} 逆时针移动{abs(final_steps)}步：{old_pos} → {new_pos}')
+
         self._scroll_to_bottom()
 
+        # 将游戏日志同步到UI日志
+        while self.game.log:
+            self.log.append(self.game.log.pop(0))
+        self._scroll_to_bottom()
+
+        # 触发格子效果
         self.game.after_trigger(player)
         while self.game.log:
             self.log.append(self.game.log.pop(0))
