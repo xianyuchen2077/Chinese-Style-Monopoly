@@ -255,7 +255,9 @@ class SkillManager:
         # 生成两个独立子回合
         game.tiger_sub_turns = [(self.player, "main"), (self.player, "clone")]
         skill['cooldown'] = 4 if level == SkillLevel.III else 3
+        skill['split_turns'] = 2 if level == SkillLevel.I else 3
         skill['used'] += 1
+        skill['clone_position'] = self.player.position
 
         # 状态
         self.player.status['tiger_split'] = {

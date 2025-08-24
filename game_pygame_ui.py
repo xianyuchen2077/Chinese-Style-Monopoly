@@ -389,8 +389,16 @@ class GameUI:
                     pygame.draw.circle(self.screen, PLAYER_COLORS[i % 4], (cx, cy), int(CELL_SIZE * 0.32))
 
                 # 分身（分身二）
-                cr, cc = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE)
-                        if grid_map[r][c] == player.get_clone_position()][0]
+                clone_pos = player.get_clone_position()
+                if clone_pos is not None:
+                    match = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE)
+                            if grid_map[r][c] == clone_pos]
+                    if match:
+                        cr, cc = match[0]
+                    else:
+                        continue  # 或跳过绘制
+                else:
+                    continue
                 clone_cx = self.margin + cc * CELL_SIZE + CELL_SIZE // 2
                 clone_cy = self.margin + cr * CELL_SIZE + CELL_SIZE // 2
 
