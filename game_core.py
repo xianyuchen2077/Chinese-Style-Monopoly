@@ -46,6 +46,13 @@ SKILL_SHU = {
     'used': 0
 }
 
+# ===== 丑牛技能数据结构 =====
+SKILL_NIU = {
+    'level': SkillLevel.I,
+    'cooldown': 0,
+    'used': 0
+}
+
 # ===== 卯兔技能数据结构 =====
 SKILL_RABBIT = {
     'level': SkillLevel.I,
@@ -78,6 +85,7 @@ class SkillManager:
         self.player = player
         self.skills = {
             '鼠': SKILL_SHU.copy(),
+            '牛': SKILL_NIU.copy(),
             '兔': SKILL_RABBIT.copy(),
             '羊': SKILL_YANG.copy(),
             '鸡': SKILL_JI.copy()
@@ -98,6 +106,8 @@ class SkillManager:
         z = self.player.zodiac
         if z == '鼠':
             return self.use_shu(target_list, option)
+        elif z == '牛':
+            return self.use_niu(target_list, option, game)
         elif z == '兔':
             return self.use_tu(target_list, option)
         elif z == '羊':
@@ -152,6 +162,53 @@ class SkillManager:
         if lvl == SkillLevel.II and used >= 6 and eng >= 250:
             skill['level'] = SkillLevel.III
             self.player.energy -= 250
+            return True
+        return False
+
+    # ------------- 牛 - 蛮牛冲撞 ----------------
+    def use_niu(self, target_list=None, option=None, game=None) -> tuple[bool, str]:
+        """
+        丑牛·蛮牛冲撞
+        无需目标参数，对移动路径上的建筑造成破坏
+        game: Game实例，通过参数传递
+        """
+        skill = self.skills['牛']
+        if skill['cooldown'] > 0:
+            return False, "【蛮牛冲撞】冷却中"
+
+        if game is None:
+            return False, "需要传递游戏实例参数"
+
+        level = skill['level']
+        self.player.status['niu_rampage'] = {
+            'level': level,
+            'path_tiles': []
+        }
+
+        # 设置业障状态
+        if level == SkillLevel.I:
+            self.player.status['karma'] = 2
+        elif level == SkillLevel.II:
+            self.player.status['karma'] = 1
+        # III级无业障
+
+        skill['cooldown'] = 3
+        skill['used'] += 1
+
+        return True, f"{fmt_name(self.player)} 发动【蛮牛冲撞】，横冲直撞破坏沿途建筑！"
+
+    def upgrade_niu(self):
+        """升级丑牛技能"""
+        skill = self.skills['牛']
+        lvl, used, eng = skill['level'], skill['used'], self.player.energy
+
+        if lvl == SkillLevel.I and used >= 2 and eng >= 150:
+            skill['level'] = SkillLevel.II
+            self.player.energy -= 150
+            return True
+        if lvl == SkillLevel.II and used >= 4 and eng >= 300:
+            skill['level'] = SkillLevel.III
+            self.player.energy -= 300
             return True
         return False
 
@@ -415,22 +472,50 @@ class Player:
                 self.can_move = False
                 return 0
 
-        # 2. 卯兔加速
+        # 2. 丑牛冲撞：提前记录路径
+        if 'niu_rampage' in self.status:
+            rampage_info = self.status['niu_rampage']
+            rampage_info['path_tiles'] = self.record_move_path(steps, self.game)
+
+
+        # 3. 卯兔加速
         if self.zodiac == '兔':
             skill = self.skill_mgr.skills['兔']
             if skill['active']:
                 steps *= skill['multiplier']
 
-        # 3. 未羊灵魂期间本体不移动
+        # 4. 未羊灵魂期间本体不移动
         if self.zodiac == '羊':
             skill = self.skill_mgr.skills['羊']
             if skill['soul_pos'] is not None:
                 # 灵魂移动由外部调用move_soul处理
                 return 0    # 本体不动，灵魂单独走
 
-        # 4. 正常方向移动（使用玩家当前的clockwise状态）
+        # 5. 正常方向移动（使用玩家当前的clockwise状态）
         return steps if self.clockwise else -steps
 
+    def record_move_path(self, steps: int, game) -> list[int]:
+        """
+        记录玩家本次移动将经过的所有格子索引（不含起点）。
+        steps : 实际步数（带方向）
+        game  : Game 实例，用于获取棋盘长度
+        return: 路径格子索引列表
+        """
+        if steps == 0:
+            return []
+
+        current_pos = self.position
+        board_len = len(game.board.tiles)
+        path = []
+
+        for i in range(1, abs(steps) + 1):
+            if steps > 0:
+                pos = (current_pos + i) % board_len
+            else:
+                pos = (current_pos - i) % board_len
+            path.append(pos)
+
+        return path
 class Tile:
     def __init__(self, idx, name, element=None, price=0, special=None):
         self.idx = idx
@@ -550,6 +635,9 @@ class Game:
             player.money += 5000
             self.log.append(f'{fmt_name(player)} 经过起点，获得5000金币！')
 
+        # 处理丑牛冲撞效果
+        self.handle_niu_rampage(player)
+
         return player.position
 
     def next_turn(self):
@@ -564,6 +652,12 @@ class Game:
         # 恢复所有玩家的移动能力
         for p in self.players:
             p.can_move = True
+            # 处理业障状态
+            if 'karma' in p.status:
+                p.status['karma'] -= 1
+                if p.status['karma'] <= 0:
+                    del p.status['karma']
+                    self.log.append(f"{fmt_name(p)} 业障消散")
             # 清除卯兔加速
             if p.zodiac == '兔':
                 p.skill_mgr.skills['兔']['active'] = False
@@ -592,6 +686,67 @@ class Game:
     def public_tiles(self):
         """返回所有无主且可买地皮"""
         return [t for t in self.board.tiles if self._is_property_tile(t) and t.owner is None]
+
+    def handle_niu_rampage(self, player):
+        """处理丑牛冲撞的建筑破坏效果"""
+        if 'niu_rampage' not in player.status:
+            return
+
+        rampage_info = player.status['niu_rampage']
+        level = rampage_info['level']
+        path_tiles = rampage_info['path_tiles']
+        destroyed = []
+
+        for tile_idx in path_tiles:
+            tile = self.board.tiles[tile_idx]
+            if tile.owner and tile.level.value > 0:
+                damage = 0
+                if level == SkillLevel.I:
+                    damage = 1
+                elif level == SkillLevel.II:
+                    damage = 1 if tile.owner != player else 0
+                elif level == SkillLevel.III:
+                    damage = 2 if tile.owner != player else 0
+
+                if damage > 0:
+                    old = tile.level.value
+                    new = max(0, old - damage)
+                    tile.level = BuildingLevel(new)
+                    destroyed.append({
+                        'name': tile.name,
+                        'owner': tile.owner,
+                        'old': old,
+                        'new': new
+                    })
+
+        # 终点额外破坏（II/III级）
+        if level in [SkillLevel.II, SkillLevel.III] and path_tiles:
+            end_tile = self.board.tiles[path_tiles[-1]]
+            if end_tile.owner and end_tile.owner != player:
+                chance = 0.5 if level == SkillLevel.II else 1.0
+                if random.random() < chance and end_tile.level.value > 0:
+                    old = end_tile.level.value
+                    end_tile.level = BuildingLevel.EMPTY
+                    destroyed.append({
+                        'name': end_tile.name,
+                        'owner': end_tile.owner,
+                        'old': old,
+                        'new': 0,
+                        'extra': True
+                    })
+
+        # 日志输出
+        level_names = {0: '空地', 1: '茅屋', 2: '瓦房', 3: '客栈', 4: '宫殿'}
+        for d in destroyed:
+            owner_name = fmt_name(d['owner'])
+            old_name = level_names.get(d['old'], '建筑')
+            new_name = level_names.get(d['new'], '空地')
+            if d.get('extra'):
+                self.log.append(f"【终点冲击】{d['name']} 被完全摧毁！")
+            else:
+                self.log.append(f"摧毁 {owner_name} 的{d['name']}：{old_name} → {new_name}")
+
+        del player.status['niu_rampage']
 
     # 预留：技能、事件、经济、建筑升级等接口
     def use_skill(self, player, skill_name):

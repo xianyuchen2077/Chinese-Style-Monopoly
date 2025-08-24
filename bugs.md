@@ -26,3 +26,10 @@ def _trigger_san_yang_kai_tai(self, distance: int) -> str:
     for idx in path[1:]:
         tile = game.board.tiles[idx]  # 使用 game.board
         # ... 其他代码保持不变 ...
+
+# 在计算租金时需要考虑业障状态，这个可以在后续的租金计算方法中实现
+def calculate_rent_with_karma(self, base_rent):
+    """计算含业障效果的租金"""
+    if 'karma' in self.status and self.status['karma'] > 0:
+        return int(base_rent * 1.5)  # +50%
+    return base_rent
