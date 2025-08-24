@@ -35,6 +35,7 @@ EARTHLY_NAMES = {
     '猴': '申猴', '鸡': '酉鸡', '狗': '戌狗', '猪': '亥猪'
 }
 
+# 统一日志玩家名称
 def fmt_name(player):
     """返回统一格式：[玩家名]角色名"""
     return f"[{player.name}]{EARTHLY_NAMES[player.zodiac]}"
@@ -130,14 +131,14 @@ class SkillManager:
             return False, "【灵鼠窃运】技能冷却中"
 
         level = skill['level']
-        turns = 2 if level == SkillLevel.III else 1
-        lock_skill = level != SkillLevel.I  # II 以上封锁技能
+        turns = 2 if level == SkillLevel.III else 1 # 只有III级可以操控两个回合
+        lock_skill = level != SkillLevel.I          # 技能等级II级以上能够封锁技能
 
         # 支持多目标
         for target in target_list:
-            if direction == 'backward':
+            if direction == 'backward':     # 反向
                 target.clockwise = not target.clockwise
-            elif direction == 'stay':
+            elif direction == 'stay':       # 原地停留
                 target.status['shu_control'] = {
                     'turns': turns,
                     'direction': 'stay',
@@ -155,10 +156,12 @@ class SkillManager:
     def upgrade_shu(self):
         skill = self.skills['鼠']
         lvl, used, eng = skill['level'], skill['used'], self.player.energy
+
         if lvl == SkillLevel.I and used >= 3 and eng >= 100:
             skill['level'] = SkillLevel.II
             self.player.energy -= 100
             return True
+
         if lvl == SkillLevel.II and used >= 6 and eng >= 250:
             skill['level'] = SkillLevel.III
             self.player.energy -= 250

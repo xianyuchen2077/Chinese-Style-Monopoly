@@ -62,7 +62,7 @@ INFO_WIDTH = 500    # 信息区宽
 
 SKILL_SUMMARY = {
     '鼠': '灵鼠窃运（控向/停留）',
-    '牛': '蛮牛冲撞（摧毁途经建筑）',
+    '牛': '蛮牛冲撞（摧毁/业障）',
     '虎': '猛虎分身（双体两回合）',
     '兔': '玉兔疾行（下次步数×2/×3）',
     '龙': '真龙吐息（喷射强制入院）',
@@ -77,8 +77,8 @@ SKILL_SUMMARY = {
 
 # 技能详细说明（来自 rules.md，精简版）
 SKILL_DETAILS = {
-    '鼠': '灵鼠窃运：指定玩家控制其下回合移动方向，可反向或停留，对隐身无效。冷却3回合。',
-    '牛': '蛮牛冲撞：本回合摧毁经过路径上所有他人建筑；自身获“业障”3回合（租金+50%）。对土减半。冷却3回合。',
+    '鼠': '灵鼠窃运：指定玩家控制其若干回合移动方向/技能，可反向或停留，对隐身无效。',
+    '牛': '蛮牛冲撞：本回合破坏经过路径上所有他人建筑；自身获“业障”（租金+50%）。对土减半。',
     '虎': '猛虎分身：分身为两个实体2回合，各自独立转盘移动，结束合体。分身受伤加倍。冷却3回合。',
     '兔': '玉兔疾行：下一次转盘结果×2，加速期间无法购买地皮。冷却3回合。',
     '龙': '真龙吐息：直线喷火，路径玩家强制入“太医院”，火焰被建筑阻挡。每局最多3次。冷却4回合。',
@@ -488,8 +488,7 @@ class GameUI:
 
         # 3. 进阶（技能升级）
         self.advance_btn_rect = pygame.Rect(start_x + (btn_w + gap) * 2, buy_y, btn_w, 40)
-        can_adv = (cur_player.zodiac == '鼠' and
-                cur_player.skill_mgr.skills['鼠']['level'] != cur_player.skill_mgr.skills['鼠']['level'].__class__.__name__)
+        can_adv = self._can_advance_skill(cur_player)   # 暂未开发进阶功能
         color_advance = (220,220,220) if can_adv else (200,200,200)
         text_advance  = (100,50,50)   if can_adv else (120,120,120)
         pygame.draw.rect(self.screen, color_advance, self.advance_btn_rect, border_radius=10)
@@ -571,13 +570,14 @@ class GameUI:
 
             # 正确获取状态信息
             positive = 'shield' in player.status if hasattr(player, 'status') else False
-            negative = 'skip_turns' in player.status if hasattr(player, 'status') else False
+            negative = any(k in player.status for k in ('skip_turns', 'karma')) if hasattr(player, 'status') else False
             shu_controlled = 'shu_control' in player.status if hasattr(player, 'status') else False
 
             status_parts = []
             if positive: status_parts.append('护盾')
             if negative: status_parts.append('休息')
             if shu_controlled: status_parts.append('被控')
+            if 'karma' in player.status:status_parts.append('业障')
             attr_text = f"状态：{' '.join(status_parts)}" if status_parts else "状态：正常"
 
             items = [
@@ -791,6 +791,21 @@ class GameUI:
                     self.active_modal = 'shu_skill'
                 else:
                     self.log.append(f'{fmt_name(cur)} 【灵鼠窃运】冷却中')
+            elif cur.zodiac == '牛':
+                if self.has_rolled:
+                    self.log.append(f'{fmt_name(cur)} 本回合已转动罗盘，无法再使用技能')
+                    self._scroll_to_bottom()
+                    return
+                ok, msg = cur.skill_mgr.use_active_skill(game=self.game)
+                self.log.append(msg)
+                if ok:
+                    level = cur.skill_mgr.skills['牛']['level']
+                    if level == SkillLevel.I:
+                        self.log.append("获得业障状态2回合，租金支出+50%")
+                    elif level == SkillLevel.II:
+                        self.log.append("获得业障状态1回合，终点50%几率额外摧毁")
+                    else:
+                        self.log.append("无业障，终点100%摧毁他人建筑")
             elif cur.zodiac == '兔':
                 # 卯兔无目标
                 ok, msg = cur.skill_mgr.use_active_skill()
@@ -827,7 +842,12 @@ class GameUI:
                     self.log.append(f'{fmt_name(cur)} 升级【灵鼠窃运】成功！')
                 else:
                     self.log.append(f'{fmt_name(cur)} 灵气不足或条件未满足')
-                self._scroll_to_bottom()
+            elif cur.zodiac == '牛':
+                if cur.skill_mgr.upgrade_niu():
+                    level = cur.skill_mgr.skills['牛']['level']
+                    self.log.append(f'{fmt_name(cur)} 升级【蛮牛冲撞】至{level.name}级成功！')
+                    upgraded = True
+            self._scroll_to_bottom()
             self.draw_info()    # 立即更新
 
         elif hasattr(self, 'buy_btn_rect') and self.buy_btn_rect.collidepoint(pos):
@@ -1533,6 +1553,27 @@ class GameUI:
             player.money >= self.game.upgrade_cost(tile)
         )
 
+    def _can_advance_skill(self, player):
+        if not hasattr(player, 'skill_mgr'):
+            return False
+        z = player.zodiac
+        if z not in player.skill_mgr.skills:
+            return False
+        sk = player.skill_mgr.skills[z]
+        lvl, used, eng = sk['level'], sk['used'], player.energy
+        if z == '鼠':
+            return (lvl == SkillLevel.I and used >= 3 and eng >= 100) or \
+                (lvl == SkillLevel.II and used >= 6 and eng >= 250)
+        if z == '牛':
+            return (lvl == SkillLevel.I and used >= 2 and eng >= 150) or \
+                (lvl == SkillLevel.II and used >= 4 and eng >= 300)
+        if z == '兔':
+            return (lvl == SkillLevel.I and used >= 3 and eng >= 100) or \
+                (lvl == SkillLevel.II and used >= 6 and eng >= 200)
+        if z == '鸡':
+            return (lvl == SkillLevel.I and used >= 3 and eng >= 200) or \
+                (lvl == SkillLevel.II and used >= 6 and eng >= 400)
+        return False
 
     def run(self):
         log_font = get_chinese_font(18)          # 提前拿到字体，供滚轮使用
