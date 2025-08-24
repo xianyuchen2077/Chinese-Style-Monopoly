@@ -1613,5 +1613,7 @@ if __name__ == '__main__':
     pygame.display.init()        # 重新打开主窗口
     ui = GameUI()
     ui.game = Game([f"玩家{i+1}" for i in range(count)], zodiacs)
+    for p in ui.game.players:
+        p.game = ui.game
     ui.player_sprites = ui._load_player_sprites()
     ui.run()

@@ -4,7 +4,7 @@
 from code import interact
 import random
 from enum import Enum
-from typing import Self
+from typing import Self, Optional
 
 # 五行元素
 class Element(Enum):
@@ -461,7 +461,7 @@ class Player:
         self.skill_mgr = SkillManager(self)
         self.clockwise = True          # True=顺时针, False=逆时针
         self.can_move = True           # False 表示本轮不能转盘
-        self.game = None
+        self.game: Optional["Game"] = None
 
     def move_step(self, steps):
         """返回最终步数（含方向）"""
