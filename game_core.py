@@ -241,37 +241,31 @@ class SkillManager:
         skill = self.skills['虎']
         level = skill['level']
 
-        # 已分身 → 处理合体
-        if skill['split_turns'] > 0:
-            if option and option.get('action') == 'merge':
-                if level == SkillLevel.III and skill['can_merge']:
-                    merge_target = option.get('merge_to', 'main')
-                    return self._merge_clones(merge_target)
-                else:
-                    return False, "当前等级不支持主动合体"
-            return False, f"已处于分身状态，剩余{skill['split_turns']}回合"
+    # Ⅲ 级手动合体（队列外触发）
+        if option and option.get('action') == 'merge':
+            if level == SkillLevel.III:
+                merge_target = option.get('merge_to', 'main')
+                return self._merge_clones(merge_target)
+            return False, "当前等级不支持主动合体"
 
         # 技能冷却
         if skill['cooldown'] > 0:
             return False, "【猛虎分身】冷却中"
 
-        # 执行分身
-        duration = 2 if level == SkillLevel.I else 3
-        skill['split_turns'] = duration
-        skill['clone_position'] = self.player.position
-        skill['can_merge'] = (level == SkillLevel.III)
+        # 生成两个独立子回合
+        game.tiger_sub_turns = [(self.player, "main"), (self.player, "clone")]
         skill['cooldown'] = 4 if level == SkillLevel.III else 3
         skill['used'] += 1
 
         # 状态
         self.player.status['tiger_split'] = {
             'level': level,
-            'turns_left': duration,
             'damage_reduction': {SkillLevel.I: 0.0, SkillLevel.II: 0.5, SkillLevel.III: 0.8}[level],
-            'reward_multiplier': {SkillLevel.I: 0.5, SkillLevel.II: 1.0, SkillLevel.III: 1.5}[level]
+            'reward_multiplier': {SkillLevel.I: 0.5, SkillLevel.II: 1.0, SkillLevel.III: 1.5}[level],
+            'can_merge': (level == SkillLevel.III)
         }
 
-        return True, f"{fmt_name(self.player)} 发动【猛虎分身】，分为两个实体{duration}回合！"
+        return True, f"{fmt_name(self.player)} 发动【猛虎分身】，即将进入双身循环"
 
     def _merge_clones(self, merge_to: str) -> tuple[bool, str]:
         skill = self.skills['虎']
@@ -672,6 +666,7 @@ class Game:
         self.current_player_idx = 0
         self.turn = 0
         self.log = []
+        self.tiger_sub_turns = []  # [(player, "main"), (player, "clone")] 或空
 
     def turn_start(self, player):
         # 1. 选择是否发动技能或特殊机遇
@@ -691,6 +686,23 @@ class Game:
 
     # 转动转盘
     def spin_wheel(self):
+        """
+        统一转盘逻辑：
+        - 普通玩家：返回 1 个骰子点数
+        - 寅虎分身回合：返回 (main_dice, clone_dice)
+        - 自动处理未羊灵魂移动
+        """
+        player = self.players[self.current_player_idx]
+
+        # 寅虎分身回合 → 双骰子
+        if self.tiger_sub_turns:
+            # 取当前分身标识
+            _, tag = self.tiger_sub_turns[0]
+            main_dice = random.randint(1, 10)
+            clone_dice = random.randint(1, 10)
+            return main_dice, clone_dice
+
+        # 普通回合
         dice = random.randint(1, 10)
 
         # ---- 未羊灵魂先行 ----
@@ -740,13 +752,23 @@ class Game:
         return player.position
 
     def next_turn(self):
-        # 清理上一位玩家的"刚购买地皮，不能够加盖"的限制
+        # 1. 寅虎子回合
+        if self.tiger_sub_turns:
+            player, tag = self.tiger_sub_turns.pop(0)
+            self.current_player_idx = self.players.index(player)
+            self.log.append(f"【{fmt_name(player)}】【{tag}】回合开始")
+            player.can_move = True
+            player.skill_mgr.tick_cooldown()
+            return
+
+        # 2. 正常轮换
+        self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
+        self.turn += 1
+
+        # 清理上一位玩家状态（"刚购买地皮，不能够加盖"）
         current_player = self.players[self.current_player_idx]
         if 'just_bought' in current_player.status:
             current_player.status.pop('just_bought', None)
-
-        self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
-        self.turn += 1
 
         # 恢复所有玩家的移动能力
         for p in self.players:
@@ -757,8 +779,13 @@ class Game:
                 if p.status['karma'] <= 0:
                     del p.status['karma']
                     self.log.append(f"{fmt_name(p)} 业障消散")
+            # 处理寅虎分身
+            if p.zodiac == '虎' and self.tiger_sub_turns == []:
+                p.skill_mgr.skills['虎']['clone_position'] = None
+                p.status.pop('tiger_split', None)
+                self.log.append(f"{fmt_name(p)} 分身回合结束，自动合体")
             # 清除卯兔加速
-            if p.zodiac == '兔':
+            elif p.zodiac == '兔':
                 p.skill_mgr.skills['兔']['active'] = False
             # 未羊灵魂回合倒计时 & 强制传送
             elif p.zodiac == '羊':

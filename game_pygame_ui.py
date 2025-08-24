@@ -380,48 +380,33 @@ class GameUI:
             else:
                 pygame.draw.circle(self.screen, PLAYER_COLORS[i % 4], (cx, cy), int(CELL_SIZE * 0.32))
 
-            # ========== 寅虎分身绘制（新增） ==========
-            if player.zodiac == '虎' and hasattr(player, 'skill_mgr'):
-                skill = player.skill_mgr.skills['虎']
-                clone_pos = skill.get('clone_position')
-                if clone_pos is not None and skill.get('split_turns', 0) > 0:
-                    # 找到分身位置
-                    clone_grid_pos = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE) if grid_map[r][c] == clone_pos]
-                    if clone_grid_pos:
-                        cr, cc = clone_grid_pos[0]
-                        clone_cx = self.margin + cc * CELL_SIZE + CELL_SIZE // 2
-                        clone_cy = self.margin + cr * CELL_SIZE + CELL_SIZE // 2
+            # ========== 寅虎分身绘制 ==========
+            if player.zodiac == '虎' and player.has_clone():
+                # 主体（分身一）
+                if sprite:
+                    self.screen.blit(sprite, sprite.get_rect(center=(cx, cy)))
+                else:
+                    pygame.draw.circle(self.screen, PLAYER_COLORS[i % 4], (cx, cy), int(CELL_SIZE * 0.32))
 
-                        # 绘制半透明分身
-                        if sprite:
-                            clone_sprite = sprite.copy()
-                            clone_sprite.set_alpha(180)  # 半透明效果
-                            self.screen.blit(clone_sprite, clone_sprite.get_rect(center=(clone_cx, clone_cy)))
-                        else:
-                            # 半透明圆圈
-                            clone_surf = pygame.Surface(
-                                (int(CELL_SIZE * 0.64), int(CELL_SIZE * 0.64)),
-                                pygame.SRCALPHA
-                            )
-                            pygame.draw.circle(
-                                clone_surf,
-                                (*PLAYER_COLORS[i % 4], 180),
-                                (int(CELL_SIZE * 0.32), int(CELL_SIZE * 0.32)),
-                                int(CELL_SIZE * 0.32)
-                            )
-                            self.screen.blit(clone_surf,
-                                        clone_surf.get_rect(center=(clone_cx, clone_cy)))
+                # 分身（分身二）
+                cr, cc = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE)
+                        if grid_map[r][c] == player.get_clone_position()][0]
+                clone_cx = self.margin + cc * CELL_SIZE + CELL_SIZE // 2
+                clone_cy = self.margin + cr * CELL_SIZE + CELL_SIZE // 2
 
-                        # 在分身上方显示"分身"标记
-                        font = get_chinese_font(14)
-                        text = font.render('分身', True, (255, 255, 255))
-                        text_rect = text.get_rect(center=(clone_cx, clone_cy - int(CELL_SIZE * 0.45)))
-                        # 添加黑色背景
-                        bg_rect = text_rect.inflate(4, 2)
-                        pygame.draw.rect(self.screen, (0, 0, 0, 128), bg_rect, border_radius=2)
-                        self.screen.blit(text, text_rect)
+                if sprite:
+                    clone_sprite = sprite.copy()
+                    clone_sprite.set_alpha(220)
+                    clone_sprite = pygame.transform.scale(
+                        clone_sprite, (int(CELL_SIZE * 0.7), int(CELL_SIZE * 0.7)))
+                    self.screen.blit(clone_sprite,
+                                    clone_sprite.get_rect(center=(clone_cx, clone_cy)))
+                else:
+                    pygame.draw.circle(self.screen, PLAYER_COLORS[i % 4],
+                                    (clone_cx, clone_cy),
+                                    int(CELL_SIZE * 0.28))
 
-            # ---------- 仅未羊灵魂出窍时绘制半透明灵魂 ----------
+            # ========== 未羊灵魂出窍半透明灵魂绘制 ==========
             elif player.zodiac == '羊':
                 skill = player.skill_mgr.skills['羊']
                 soul = skill['soul_pos']
@@ -977,10 +962,15 @@ class GameUI:
 
         # ---------------- 回合结束按钮 ----------------
         elif hasattr(self, 'end_turn_btn_rect') and self.end_turn_btn_rect.collidepoint(pos):
+            # 若存在分身子回合，仅消耗当前子回合
+            if self.game.tiger_sub_turns:
+                self.game.next_turn()
+                self.draw_info()
+                return
+            # 正常轮换
             self.game.next_turn()
             self.has_rolled = False
-            # 新的当前玩家
-            new_player = self.game.players[self.game.current_player_idx]
+            new_player = self.game.players[self.game.current_player_idx]    # 新的当前玩家
             self.log.append(f'轮到 {fmt_name(new_player)}')
             self._scroll_to_bottom()
             self.draw_info()
@@ -995,15 +985,16 @@ class GameUI:
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
 
-        if (player.zodiac == '虎'
-                and hasattr(player, 'skill_mgr')
-                and player.skill_mgr.skills['虎']['split_turns'] == 0
-                and player.has_clone()):
-            # 准备合体
-            self.hu_merge_player = player
-            self.hu_merge_cells  = [player.position, player.get_clone_position()]
-            self.hu_merge_mode   = 'selecting_merge'
-            self.log.append("请选择合体位置（点击高亮格子）")
+        # 寅虎分身回合 → 只取当前分身的骰子
+        if self.game.tiger_sub_turns:
+            _, tag = self.game.tiger_sub_turns[0]
+            dice_result = self.game.spin_wheel()
+            # spin_wheel 返回 (main, clone) 时拆包
+            if isinstance(dice_result, tuple):
+                dice_result = dice_result[0] if tag == "main" else dice_result[1]
+        # 普通回合
+        else:
+            dice_result = self.game.spin_wheel()
 
         if not player.can_move:
             reason = "被【灵鼠窃运】禁锢，无法行动" if player.status.get('shu_control', {}).get('direction') == 'stay' else "无法移动"
@@ -1018,8 +1009,7 @@ class GameUI:
             self.game.next_turn()   # 休息回合，无法进行任何操作
             return
 
-        # 获取骰子结果
-        dice_result = self.game.spin_wheel()
+        # 动画
         self._animate_wheel(dice_result)
 
         # 通过Player的move_step方法处理方向和控制效果
@@ -1041,7 +1031,6 @@ class GameUI:
             self.log.append(f'{fmt_name(player)} 顺时针移动{final_steps}步：{old_pos} → {new_pos}')
         else:
             self.log.append(f'{fmt_name(player)} 逆时针移动{abs(final_steps)}步：{old_pos} → {new_pos}')
-
         self._scroll_to_bottom()
 
         # 将游戏日志同步到UI日志

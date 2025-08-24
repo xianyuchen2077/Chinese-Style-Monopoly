@@ -33,3 +33,5 @@ def calculate_rent_with_karma(self, base_rent):
     if 'karma' in self.status and self.status['karma'] > 0:
         return int(base_rent * 1.5)  # +50%
     return base_rent
+
+子鼠禁锢一回合不会自动解除
