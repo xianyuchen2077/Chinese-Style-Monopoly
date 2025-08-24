@@ -213,7 +213,7 @@ class GameUI:
         self.screen = pygame.display.set_mode((self.width, self.height))
         pygame.display.set_caption('中国文化棋盘游戏')
         self.clock = pygame.time.Clock()
-        self.game = Game(['玩家一', '玩家二'], ['鼠', '牛'])
+        self.game = Game(['玩家一', '玩家二'], ['鼠', '牛'])    #不要初始化为None，会炸！
         self.selected_skill = None
         self.log = []
         self.tile_props = self._build_tile_props()
@@ -1325,23 +1325,28 @@ class GameUI:
 
         # 检查当前位置是否符合起飞条件
         current_tile = self.game.board.tiles[cur.position]
-        def allow_start(t):
-            return t.owner == cur or (t.owner is None and self.game._is_property_tile(t))
 
-        if not allow_start(current_tile):
-            self.log.append(f'{fmt_name(cur)} 当前位置无法起飞（需要在自有或公共地皮）')
-            self._scroll_to_bottom()
+        def allow_start(t):
+            return t.owner == cur or (t.owner is None and self.game._is_property_tile(t)) or t.special in ('start', 'encounter', 'hospital')
+
+        # 添加对特殊格子（公共格子）的支持
+        def is_public_special(t):
+            return t.special in ('start', 'encounter', 'hospital')
+
+        if not (allow_start(current_tile) or is_public_special(current_tile)):
+            self.log.append(f'{fmt_name(cur)} 当前位置无法起飞')
             return
 
-        # 根据技能等级确定可降落的地皮
+        # 根据技能等级确定可降落的地皮，包含特殊格子
         if level == SkillLevel.I:
-            valid_tiles = [t for t in self.game.board.tiles if allow_start(t)]
+            valid_tiles = [t for t in self.game.board.tiles
+                        if allow_start(t) or is_public_special(t)]
         elif level == SkillLevel.II:
             valid_tiles = [t for t in self.game.board.tiles
-                        if t.owner is None and self.game._is_property_tile(t)]
+                        if (t.owner is None and self.game._is_property_tile(t)) or is_public_special(t)]
         else:  # SkillLevel.III
             valid_tiles = [t for t in self.game.board.tiles
-                        if self.game._is_property_tile(t)]
+                        if self.game._is_property_tile(t) or is_public_special(t)]
 
         # 过滤掉当前位置
         self.ji_valid_tiles = [t for t in valid_tiles if t.idx != cur.position]
@@ -1372,7 +1377,8 @@ class GameUI:
 
         # 执行技能
         ok, msg = cur.skill_mgr.use_active_skill(
-            option={'from_idx': cur.position, 'to_idx': tile_idx}
+            option={'from_idx': cur.position, 'to_idx': tile_idx},
+            game=self.game
         )
         self.log.append(msg)
         self._scroll_to_bottom()

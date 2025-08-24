@@ -4,6 +4,7 @@
 from code import interact
 import random
 from enum import Enum
+from typing import Self
 
 # 五行元素
 class Element(Enum):
@@ -89,7 +90,7 @@ class SkillManager:
         return False
 
     # ------------- 统一外部调用接口 ----------------
-    def use_active_skill(self, target_list=None, option=None):
+    def use_active_skill(self, target_list=None, option=None, game=None):
         """
         target_list: list[Player] 可为空/单/多
         option:      额外参数
@@ -102,7 +103,7 @@ class SkillManager:
         elif z == '羊':
             return self.use_yang(target_list, option)
         elif z == '鸡':
-            return self.use_ji(target_list, option)
+            return self.use_ji(target_list, option, game)
         else:
             return False, "暂无主动技能"
 
@@ -201,7 +202,7 @@ class SkillManager:
         return True, f"{fmt_name(self.player)} 发动【灵羊出窍】，灵魂已出窍（3回合内可传送）"
 
     # —— 灵魂移动：在 Game.spin_wheel 后由 Game 统一调用 ——
-    def move_soul(self, dice: int) -> str | None:
+    def move_soul(self, dice: int, game=None) -> str | None:
         """
         仅在未羊灵魂已出窍时调用，让灵魂前进 dice 步。
         返回日志字符串；无灵魂时返回 None。
@@ -222,7 +223,7 @@ class SkillManager:
         dist = self._yang_distance(self.player.position, new, board_len)
         reward = ""
         if random.random() < {1: 0.05, 2: 0.15, 3: 0.5}[level.value]:
-            reward = self._trigger_san_yang_kai_tai(dist)
+            reward = self._trigger_san_yang_kai_tai(dist, game)
 
         msg = f"{fmt_name(self.player)} 【灵魂出窍】，灵魂移动 {steps} 格至 {new}"
         if reward:
@@ -236,20 +237,26 @@ class SkillManager:
         d2 = (a - b) % total
         return min(d1, d2)
 
-    def _trigger_san_yang_kai_tai(self, distance: int) -> str:
-        board = self.player.game.board
+    def _trigger_san_yang_kai_tai(self, distance: int, game) -> str:
+        """
+        触发三阳开泰效果
+        game: Game实例，通过参数传递
+        """
+        if not game:
+            return ""
+
         path = self._shortest_path(self.player.position, distance)
         for idx in path[1:]:
-            tile = board.tiles[idx]
+            tile = game.board.tiles[idx]
             if tile.owner is None and tile.price and self.player.money >= tile.price:
                 tile.owner = self.player
                 tile.level = BuildingLevel.HUT
                 self.player.properties.append(idx)
-                self.player.game.log.append(f"触发【三阳开泰】，免费获得「{tile.name}」")
+                game.log.append(f"触发【三阳开泰】，免费获得「{tile.name}」")
                 return f"免费获得「{tile.name}」"
             elif tile.owner == self.player and tile.level != BuildingLevel.PALACE:
-                self.player.game.upgrade_building(self.player, tile)
-                self.player.game.log.append(f"触发【三阳开泰】，免费升级「{tile.name}」")
+                game.upgrade_building(self.player, tile)
+                game.log.append(f"触发【三阳开泰】，免费升级「{tile.name}」")
                 return f"免费升级「{tile.name}」"
         return ""
 
@@ -260,10 +267,11 @@ class SkillManager:
         return forward if len(forward) <= len(backward) else backward
 
     # ------------- 鸡 - 金鸡腾翔 ----------------
-    def use_ji(self, target_list=None, option=None) -> tuple[bool, str]:
+    def use_ji(self, target_list=None, option=None, game=None) -> tuple[bool, str]:
         """
         酉鸡·金鸡腾翔
         option 必须包含 {'from_idx': int, 'to_idx': int}
+        game: Game实例，通过参数传递
         target_list 保持空，仅为了接口统一
         """
         skill = self.skills['鸡']
@@ -278,27 +286,33 @@ class SkillManager:
         if from_idx is None or to_idx is None:
             return False, "缺少起飞或降落点"
 
-        board = self.player.game.board
+        if game is None:
+            return False, "需要传递游戏实例参数"
+
+        board = game.board
         total = len(board.tiles)
 
-        def is_public(tile):
-            return tile.owner is None and self.player.game._is_property_tile(tile)
+        def is_public_or_special(tile):
+            return (
+                tile.special in ('start', 'encounter', 'hospital') or
+                (tile.owner is None and game._is_property_tile(tile))
+            )
 
         level = skill['level']
         # 规则表
         rules = {
             SkillLevel.I: {
-                'allow_start': lambda t: t.owner == self.player or is_public(t),
-                'allow_land' : lambda t: t.owner == self.player or is_public(t),
+                'allow_start': lambda t: t.owner == self.player or is_public_or_special(t),
+                'allow_land' : lambda t: t.owner == self.player or is_public_or_special(t),
                 'max_corners': 0
             },
             SkillLevel.II: {
-                'allow_start': lambda t: t.owner == self.player or is_public(t),
+                'allow_start': lambda t: t.owner == self.player or is_public_or_special(t),
                 'allow_land' : lambda t: t.owner is None and self.player.game._is_property_tile(t),
                 'max_corners': 1
             },
             SkillLevel.III: {
-                'allow_start': lambda t: t.owner == self.player or is_public(t),
+                'allow_start': lambda t: t.owner == self.player or is_public_or_special(t),
                 'allow_land' : lambda t: True,
                 'max_corners': 2
             }
@@ -337,16 +351,22 @@ class SkillManager:
         msg = f"{fmt_name(self.player)} 从 {from_idx} 腾翔至 {to_idx}{reward}"
         return True, msg
 
-
     # 计算两格之间的“拐角”数
     def _count_corners(self, a: int, b: int, total: int) -> int:
-        # 顺时针和逆时针两条路径中，取拐角较少的
-        cw = (b - a) % total
-        ccw = (a - b) % total
-        # 13*4 外圈，每 13 格一个拐角
-        corners_cw = cw // 13
-        corners_ccw = ccw // 13
-        return min(corners_cw, corners_ccw)
+        skill = self.skills['鸡']
+        level = skill['level']
+
+        if level == SkillLevel.I:
+            # 一级只能顺时针前进
+            cw = (b - a) % total
+            return cw // 13
+        else:
+            # 二级和三级可以双向选择最优路径
+            cw = (b - a) % total
+            ccw = (a - b) % total
+            corners_cw = cw // 13
+            corners_ccw = ccw // 13
+            return min(corners_cw, corners_ccw)
 
     def upgrade_ji(self):
         skill = self.skills['鸡']
@@ -381,6 +401,7 @@ class Player:
         self.skill_mgr = SkillManager(self)
         self.clockwise = True          # True=顺时针, False=逆时针
         self.can_move = True           # False 表示本轮不能转盘
+        self.game = None
 
     def move_step(self, steps):
         """返回最终步数（含方向）"""
@@ -491,7 +512,7 @@ class Game:
         # ---- 未羊灵魂先行 ----
         for p in self.players:
             if p.zodiac == '羊':
-                soul_log = p.skill_mgr.move_soul(dice)
+                soul_log = p.skill_mgr.move_soul(dice, self)
                 if soul_log:
                     self.log.append(soul_log)
 
