@@ -63,7 +63,7 @@ INFO_WIDTH = 500    # 信息区宽
 SKILL_SUMMARY = {
     '鼠': '灵鼠窃运（控向/停留）',
     '牛': '蛮牛冲撞（摧毁/业障）',
-    '虎': '猛虎分身（双体两回合）',
+    '虎': '猛虎分身（双体/奖惩）',
     '兔': '玉兔疾行（下次步数×2/×3）',
     '龙': '真龙吐息（喷射强制入院）',
     '蛇': '灵蛇隐踪（隐身3回合）',
@@ -75,11 +75,11 @@ SKILL_SUMMARY = {
     '猪': '福猪破障（摧毁建筑-1）',
 }
 
-# 技能详细说明（来自 rules.md，精简版）
+# 技能详细说明
 SKILL_DETAILS = {
     '鼠': '灵鼠窃运：指定玩家控制其若干回合移动方向/技能，可反向或停留，对隐身无效。',
     '牛': '蛮牛冲撞：本回合破坏经过路径上所有他人建筑；自身获“业障”（租金+50%）。对土减半。',
-    '虎': '猛虎分身：分身为两个实体2回合，各自独立转盘移动，结束合体。分身受伤加倍。冷却3回合。',
+    '虎': '猛虎分身：分为两个实体2-3回合，各自独立转盘移动。I级奖励减半，II级伤害减免50%，III级可主动合体且奖励1.5倍。冷却3-4回合。',
     '兔': '玉兔疾行：下一次转盘结果×2，加速期间无法购买地皮。冷却3回合。',
     '龙': '真龙吐息：直线喷火，路径玩家强制入“太医院”，火焰被建筑阻挡。每局最多3次。冷却4回合。',
     '蛇': '灵蛇隐踪：隐身3回合，不可被锁定或影响；期间不能购地和用攻击技能。冷却5回合。',
@@ -193,6 +193,9 @@ class GameUI:
         self.hovered_tile = None    # 当前悬停地块索引
         self.shu_target = None      # 子鼠技能：被选中的目标玩家
         self.shu_sub_modal = None   # 'select_target' | 'select_dir'
+        self.hu_merge_mode   = None        # 'selecting_merge'
+        self.hu_merge_cells  = []          # [idx1, idx2]
+        self.hu_merge_player = None        # 当前正在合体的虎玩家
         self.ji_sub_modal = None   # 'select_from' | 'select_to'
         self.ji_mode = None        # 'selecting_from' | 'selecting_to'
         self.ji_valid_tiles = []   # 当前可选择的地皮列表
@@ -296,8 +299,25 @@ class GameUI:
                 tile_info = self.tile_props.get(idx, None)
                 base_color = WHITE if tile_info is None else tile_info['color']
 
+                # 寅虎技能模式下合体的暗化效果
+                if self.hu_merge_mode == 'selecting_merge':
+                    # 暗化整个棋盘
+                    overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                    overlay.fill((0, 0, 0, 180))
+                    self.screen.blit(overlay, (0, 0))
+
+                    # 仅高亮主体 & 分身格子
+                    for idx in self.hu_merge_cells:
+                        pos = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE) if grid_map[r][c] == idx]
+                        if not pos:
+                            continue
+                        r, c = pos[0]
+                        x = self.margin + c * CELL_SIZE
+                        y = self.margin + r * CELL_SIZE
+                        rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
+                        pygame.draw.rect(self.screen, (0, 255, 0, 180), rect, 5)  # 绿色高亮边框
                 # 酉鸡技能模式下的暗化效果
-                if self.ji_mode == 'selecting_to':
+                elif self.ji_mode == 'selecting_to':
                     if idx in [t.idx for t in self.ji_valid_tiles]:
                         # 可选择的地皮保持原色
                         final_color = base_color
@@ -360,8 +380,49 @@ class GameUI:
             else:
                 pygame.draw.circle(self.screen, PLAYER_COLORS[i % 4], (cx, cy), int(CELL_SIZE * 0.32))
 
+            # ========== 寅虎分身绘制（新增） ==========
+            if player.zodiac == '虎' and hasattr(player, 'skill_mgr'):
+                skill = player.skill_mgr.skills['虎']
+                clone_pos = skill.get('clone_position')
+                if clone_pos is not None and skill.get('split_turns', 0) > 0:
+                    # 找到分身位置
+                    clone_grid_pos = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE) if grid_map[r][c] == clone_pos]
+                    if clone_grid_pos:
+                        cr, cc = clone_grid_pos[0]
+                        clone_cx = self.margin + cc * CELL_SIZE + CELL_SIZE // 2
+                        clone_cy = self.margin + cr * CELL_SIZE + CELL_SIZE // 2
+
+                        # 绘制半透明分身
+                        if sprite:
+                            clone_sprite = sprite.copy()
+                            clone_sprite.set_alpha(180)  # 半透明效果
+                            self.screen.blit(clone_sprite, clone_sprite.get_rect(center=(clone_cx, clone_cy)))
+                        else:
+                            # 半透明圆圈
+                            clone_surf = pygame.Surface(
+                                (int(CELL_SIZE * 0.64), int(CELL_SIZE * 0.64)),
+                                pygame.SRCALPHA
+                            )
+                            pygame.draw.circle(
+                                clone_surf,
+                                (*PLAYER_COLORS[i % 4], 180),
+                                (int(CELL_SIZE * 0.32), int(CELL_SIZE * 0.32)),
+                                int(CELL_SIZE * 0.32)
+                            )
+                            self.screen.blit(clone_surf,
+                                        clone_surf.get_rect(center=(clone_cx, clone_cy)))
+
+                        # 在分身上方显示"分身"标记
+                        font = get_chinese_font(14)
+                        text = font.render('分身', True, (255, 255, 255))
+                        text_rect = text.get_rect(center=(clone_cx, clone_cy - int(CELL_SIZE * 0.45)))
+                        # 添加黑色背景
+                        bg_rect = text_rect.inflate(4, 2)
+                        pygame.draw.rect(self.screen, (0, 0, 0, 128), bg_rect, border_radius=2)
+                        self.screen.blit(text, text_rect)
+
             # ---------- 仅未羊灵魂出窍时绘制半透明灵魂 ----------
-            if player.zodiac == '羊':
+            elif player.zodiac == '羊':
                 skill = player.skill_mgr.skills['羊']
                 soul = skill['soul_pos']
                 if soul is not None and soul != player.position:
@@ -569,15 +630,16 @@ class GameUI:
                 cd = player.skill_mgr.skills[player.zodiac]['cooldown']
 
             # 正确获取状态信息
-            positive = 'shield' in player.status if hasattr(player, 'status') else False
-            negative = any(k in player.status for k in ('skip_turns', 'karma')) if hasattr(player, 'status') else False
-            shu_controlled = 'shu_control' in player.status if hasattr(player, 'status') else False
+            positive_states = []
+            negative_states = []
+            if hasattr(player, 'status'):
+                if 'shield' in player.status: positive_states.append('护盾')
+                if 'tiger_split' in player.status: positive_states.append('分身')
+                if 'skip_turns' in player.status: negative_states.append('休息')
+                if 'karma' in player.status: negative_states.append('业障')
+                if 'shu_control' in player.status: negative_states.append('被控')
 
-            status_parts = []
-            if positive: status_parts.append('护盾')
-            if negative: status_parts.append('休息')
-            if shu_controlled: status_parts.append('被控')
-            if 'karma' in player.status:status_parts.append('业障')
+            status_parts = positive_states + negative_states
             attr_text = f"状态：{' '.join(status_parts)}" if status_parts else "状态：正常"
 
             items = [
@@ -806,6 +868,39 @@ class GameUI:
                         self.log.append("获得业障状态1回合，终点50%几率额外摧毁")
                     else:
                         self.log.append("无业障，终点100%摧毁他人建筑")
+            elif cur.zodiac == '虎':
+                # 检查是否分身
+                if hasattr(cur, 'skill_mgr') and cur.skill_mgr.skills['虎']['split_turns'] > 0:
+                    # 罗盘已转完，准备进入合体高亮
+                    if cur.skill_mgr.skills['虎']['split_turns'] == 0:
+                        self.hu_merge_player = cur
+                        self.hu_merge_cells  = [cur.position, cur.get_clone_position()]
+                        self.hu_merge_mode   = 'selecting_merge'
+                        self.log.append("请选择合体位置（点击高亮格子）")
+                        self._scroll_to_bottom()
+                    else:
+                        remaining = cur.skill_mgr.skills['虎']['split_turns']
+                        self.log.append(f'{fmt_name(cur)} 已处于分身状态，剩余{remaining}回合')
+                        self._scroll_to_bottom()
+                    return  # 让转盘/合体流程接管
+
+                # 未分身则发动技能
+                if self.has_rolled:
+                    self.log.append(f'{fmt_name(cur)} 本回合已转动罗盘，无法再使用技能')
+                    self._scroll_to_bottom()
+                    return
+
+                ok, msg = cur.skill_mgr.use_active_skill(game=self.game)
+                self.log.append(msg)
+                if ok:
+                    level = cur.skill_mgr.skills['虎']['level']
+                    duration = 2 if level == SkillLevel.I else 3
+                    effects = {
+                        SkillLevel.I: "奖励减半，无伤害减免",
+                        SkillLevel.II: "伤害减免50%，奖励正常",
+                        SkillLevel.III: "伤害减免80%，奖励1.5倍，回合结束后点击高亮格子合体"
+                    }
+                    self.log.append(f"分身效果：{effects[level]}，持续{duration}回合")
             elif cur.zodiac == '兔':
                 # 卯兔无目标
                 ok, msg = cur.skill_mgr.use_active_skill()
@@ -847,6 +942,22 @@ class GameUI:
                     level = cur.skill_mgr.skills['牛']['level']
                     self.log.append(f'{fmt_name(cur)} 升级【蛮牛冲撞】至{level.name}级成功！')
                     upgraded = True
+            elif cur.zodiac == '虎':
+                if cur.skill_mgr.upgrade_hu():
+                    level = cur.skill_mgr.skills['虎']['level']
+                    level_name = {SkillLevel.II: 'II', SkillLevel.III: 'III'}[level]
+                    self.log.append(f'{fmt_name(cur)} 升级【猛虎分身】至{level_name}级成功！')
+                    upgraded = True
+            elif cur.zodiac == '兔':
+                if cur.skill_mgr.upgrade_tu():
+                    self.log.append(f'{fmt_name(cur)} 升级【玉兔疾行】成功！')
+                    upgraded = True
+            elif cur.zodiac == '鸡':
+                if cur.skill_mgr.upgrade_ji():
+                    self.log.append(f'{fmt_name(cur)} 升级【金鸡腾翔】成功！')
+                    upgraded = True
+            if not upgraded:
+                self.log.append(f'{fmt_name(cur)} 灵气不足或条件未满足')
             self._scroll_to_bottom()
             self.draw_info()    # 立即更新
 
@@ -883,6 +994,16 @@ class GameUI:
 
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
+
+        if (player.zodiac == '虎'
+                and hasattr(player, 'skill_mgr')
+                and player.skill_mgr.skills['虎']['split_turns'] == 0
+                and player.has_clone()):
+            # 准备合体
+            self.hu_merge_player = player
+            self.hu_merge_cells  = [player.position, player.get_clone_position()]
+            self.hu_merge_mode   = 'selecting_merge'
+            self.log.append("请选择合体位置（点击高亮格子）")
 
         if not player.can_move:
             reason = "被【灵鼠窃运】禁锢，无法行动" if player.status.get('shu_control', {}).get('direction') == 'stay' else "无法移动"
@@ -1564,13 +1685,16 @@ class GameUI:
         if z == '鼠':
             return (lvl == SkillLevel.I and used >= 3 and eng >= 100) or \
                 (lvl == SkillLevel.II and used >= 6 and eng >= 250)
-        if z == '牛':
+        elif z == '牛':
             return (lvl == SkillLevel.I and used >= 2 and eng >= 150) or \
                 (lvl == SkillLevel.II and used >= 4 and eng >= 300)
-        if z == '兔':
+        elif z == '虎':
+            return (lvl == SkillLevel.I and used >= 2 and eng >= 200) or \
+                (lvl == SkillLevel.II and used >= 4 and eng >= 400)
+        elif z == '兔':
             return (lvl == SkillLevel.I and used >= 3 and eng >= 100) or \
                 (lvl == SkillLevel.II and used >= 6 and eng >= 200)
-        if z == '鸡':
+        elif z == '鸡':
             return (lvl == SkillLevel.I and used >= 3 and eng >= 200) or \
                 (lvl == SkillLevel.II and used >= 6 and eng >= 400)
         return False
@@ -1613,6 +1737,7 @@ if __name__ == '__main__':
     pygame.display.init()        # 重新打开主窗口
     ui = GameUI()
     ui.game = Game([f"玩家{i+1}" for i in range(count)], zodiacs)
+    # 重新绑定 game 到每个玩家
     for p in ui.game.players:
         p.game = ui.game
     ui.player_sprites = ui._load_player_sprites()

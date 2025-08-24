@@ -54,6 +54,16 @@ SKILL_NIU = {
     'used': 0
 }
 
+# ===== 寅虎技能数据结构 =====
+SKILL_HU = {
+    'level': SkillLevel.I,
+    'cooldown': 0,
+    'used': 0,
+    'split_turns': 0,       # 分身剩余回合数
+    'clone_position': None, # 分身位置
+    'can_merge': False      # 是否可以主动合体
+}
+
 # ===== 卯兔技能数据结构 =====
 SKILL_RABBIT = {
     'level': SkillLevel.I,
@@ -87,6 +97,7 @@ class SkillManager:
         self.skills = {
             '鼠': SKILL_SHU.copy(),
             '牛': SKILL_NIU.copy(),
+            '虎': SKILL_HU.copy(),
             '兔': SKILL_RABBIT.copy(),
             '羊': SKILL_YANG.copy(),
             '鸡': SKILL_JI.copy()
@@ -109,6 +120,8 @@ class SkillManager:
             return self.use_shu(target_list, option)
         elif z == '牛':
             return self.use_niu(target_list, option, game)
+        elif z == '虎':
+            return self.use_hu(target_list, option, game)
         elif z == '兔':
             return self.use_tu(target_list, option)
         elif z == '羊':
@@ -212,6 +225,78 @@ class SkillManager:
         if lvl == SkillLevel.II and used >= 4 and eng >= 300:
             skill['level'] = SkillLevel.III
             self.player.energy -= 300
+            return True
+        return False
+
+    # ------------- 虎 - 猛虎分身 ----------------
+    def use_hu(self, target_list=None, option=None, game=None) -> tuple[bool, str]:
+        """
+        寅虎·猛虎分身
+        option 可包含 {'action': 'split'/'merge', 'merge_to': 'main'/'clone'}
+        game   : Game 实例
+        """
+        if game is None:
+            return False, "需要传递游戏实例参数"
+
+        skill = self.skills['虎']
+        level = skill['level']
+
+        # 已分身 → 处理合体
+        if skill['split_turns'] > 0:
+            if option and option.get('action') == 'merge':
+                if level == SkillLevel.III and skill['can_merge']:
+                    merge_target = option.get('merge_to', 'main')
+                    return self._merge_clones(merge_target)
+                else:
+                    return False, "当前等级不支持主动合体"
+            return False, f"已处于分身状态，剩余{skill['split_turns']}回合"
+
+        # 技能冷却
+        if skill['cooldown'] > 0:
+            return False, "【猛虎分身】冷却中"
+
+        # 执行分身
+        duration = 2 if level == SkillLevel.I else 3
+        skill['split_turns'] = duration
+        skill['clone_position'] = self.player.position
+        skill['can_merge'] = (level == SkillLevel.III)
+        skill['cooldown'] = 4 if level == SkillLevel.III else 3
+        skill['used'] += 1
+
+        # 状态
+        self.player.status['tiger_split'] = {
+            'level': level,
+            'turns_left': duration,
+            'damage_reduction': {SkillLevel.I: 0.0, SkillLevel.II: 0.5, SkillLevel.III: 0.8}[level],
+            'reward_multiplier': {SkillLevel.I: 0.5, SkillLevel.II: 1.0, SkillLevel.III: 1.5}[level]
+        }
+
+        return True, f"{fmt_name(self.player)} 发动【猛虎分身】，分为两个实体{duration}回合！"
+
+    def _merge_clones(self, merge_to: str) -> tuple[bool, str]:
+        skill = self.skills['虎']
+        if merge_to == 'clone' and skill['clone_position'] is not None:
+            self.player.position = skill['clone_position']
+            msg = f"{fmt_name(self.player)} 合体到分身位置 {skill['clone_position']}"
+        else:
+            msg = f"{fmt_name(self.player)} 合体到主体位置 {self.player.position}"
+
+        skill['split_turns'] = 0
+        skill['clone_position'] = None
+        skill['can_merge'] = False
+        self.player.status.pop('tiger_split', None)
+        return True, msg
+
+    def upgrade_hu(self) -> bool:
+        skill = self.skills['虎']
+        lvl, used, eng = skill['level'], skill['used'], self.player.energy
+        if lvl == SkillLevel.I and used >= 2 and eng >= 200:
+            skill['level'] = SkillLevel.II
+            self.player.energy -= 200
+            return True
+        if lvl == SkillLevel.II and used >= 4 and eng >= 400:
+            skill['level'] = SkillLevel.III
+            self.player.energy -= 400
             return True
         return False
 
@@ -480,7 +565,6 @@ class Player:
             rampage_info = self.status['niu_rampage']
             rampage_info['path_tiles'] = self.record_move_path(steps, self.game)
 
-
         # 3. 卯兔加速
         if self.zodiac == '兔':
             skill = self.skill_mgr.skills['兔']
@@ -519,6 +603,18 @@ class Player:
             path.append(pos)
 
         return path
+
+    # Player 分身辅助方法
+    def has_clone(self) -> bool:
+        return (
+            hasattr(self, 'skill_mgr')
+            and self.zodiac == '虎'
+            and self.skill_mgr.skills['虎']['split_turns'] > 0
+        )
+
+    def get_clone_position(self) -> int | None:
+        return self.skill_mgr.skills['虎']['clone_position'] if self.has_clone() else None
+
 class Tile:
     def __init__(self, idx, name, element=None, price=0, special=None):
         self.idx = idx
