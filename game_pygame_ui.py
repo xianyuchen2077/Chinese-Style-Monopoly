@@ -194,7 +194,8 @@ class GameUI:
         self.shu_target = None      # 子鼠技能：被选中的目标玩家
         self.shu_sub_modal = None   # 'select_target' | 'select_dir'
         self.ji_sub_modal = None   # 'select_from' | 'select_to'
-        self.ji_from = None        # 起飞格
+        self.ji_mode = None        # 'selecting_from' | 'selecting_to'
+        self.ji_valid_tiles = []   # 当前可选择的地皮列表
 
         if desired_h > max_h:
             margin = max(20, (max_h - base_grid_h) // 2)
@@ -261,6 +262,7 @@ class GameUI:
     def draw_board(self):
         # 背景
         self.screen.fill(BG_COLOR)
+
         # 顶部菜单栏
         self._draw_top_menu()
 
@@ -293,8 +295,24 @@ class GameUI:
                 # 填充颜色 & 边框
                 tile_info = self.tile_props.get(idx, None)
                 base_color = WHITE if tile_info is None else tile_info['color']
-                pygame.draw.rect(self.screen, base_color, rect)
-                pygame.draw.rect(self.screen, GRID_COLOR, rect, 1)
+
+                # 酉鸡技能模式下的暗化效果
+                if self.ji_mode == 'selecting_to':
+                    if idx in [t.idx for t in self.ji_valid_tiles]:
+                        # 可选择的地皮保持原色
+                        final_color = base_color
+                        # 添加高亮边框
+                        pygame.draw.rect(self.screen, base_color, rect)
+                        pygame.draw.rect(self.screen, (255, 255, 0), rect, 3)  # 金色高亮边框
+                    else:
+                        # 其他地皮暗化（降低亮度约1/3）
+                        dark_color = tuple(int(c * 0.4) for c in base_color)
+                        pygame.draw.rect(self.screen, dark_color, rect)
+                        pygame.draw.rect(self.screen, GRID_COLOR, rect, 1)
+                else:
+                    # 正常模式
+                    pygame.draw.rect(self.screen, base_color, rect)
+                    pygame.draw.rect(self.screen, GRID_COLOR, rect, 1)
 
                 # 特殊边框
                 if tile_info and tile_info.get('special'):
@@ -699,6 +717,36 @@ class GameUI:
         visible_lines = 260 // log_font.get_linesize()
         self.log_scroll = max(0, len(self.log) - visible_lines)
 
+    def _get_clicked_tile(self, pos):
+        """根据点击位置获取地皮索引"""
+        # 生成格子编号映射（与draw_board中的逻辑一致）
+        grid_map = [[-1 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+        idx = 0
+        # 上边
+        for i in range(GRID_SIZE):
+            grid_map[0][i] = idx; idx += 1
+        # 右边
+        for i in range(1, GRID_SIZE):
+            grid_map[i][GRID_SIZE-1] = idx; idx += 1
+        # 下边
+        for i in range(GRID_SIZE-2, -1, -1):
+            grid_map[GRID_SIZE-1][i] = idx; idx += 1
+        # 左边
+        for i in range(GRID_SIZE-2, 0, -1):
+            grid_map[i][0] = idx; idx += 1
+
+        # 检查点击位置
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
+                idx = grid_map[row][col]
+                if idx == -1: continue
+                x = self.margin + col * CELL_SIZE
+                y = self.margin + row * CELL_SIZE
+                rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
+                if rect.collidepoint(pos):
+                    return idx
+        return None
+
     def handle_click(self, pos):
         # 模态框点击优先
         if self.active_modal:
@@ -764,8 +812,7 @@ class GameUI:
                     return
                 # 酉鸡无目标
                 if cur.skill_mgr.skills['鸡']['cooldown'] == 0:
-                    self.ji_sub_modal = 'select_from'
-                    self.active_modal = 'ji_skill'
+                    self._start_ji_landing_selection()
                 else:
                     self.log.append(f'{fmt_name(cur)} 【金鸡腾翔】冷却中')
             else:
@@ -806,6 +853,13 @@ class GameUI:
             self.log.append(f'轮到 {fmt_name(new_player)}')
             self._scroll_to_bottom()
             self.draw_info()
+
+        # ---------------- 酉鸡技能：地皮点击处理 ----------------
+        if self.ji_mode == 'selecting_to':
+            clicked_tile = self._get_clicked_tile(pos)
+            if clicked_tile is not None and clicked_tile in [t.idx for t in self.ji_valid_tiles]:
+                self._handle_ji_landing_click(clicked_tile)
+                return
 
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
@@ -1113,9 +1167,6 @@ class GameUI:
             self._render_settings(content_rect)
         elif self.active_modal == 'shu_skill':
             self._render_shu_skill_modal(content_rect)
-        elif self.active_modal == 'ji_skill':
-            self._render_ji_skill_modal(content_rect)
-
 
     def _render_modal_text(self, rect, text):
         font = get_chinese_font(18)
@@ -1267,33 +1318,72 @@ class GameUI:
                 setattr(self, f'_shu_dir_btn_{key}', btn_rect)
             y += btn_h + 6
 
-    def _render_ji_skill_modal(self, base_rect):
+    def _start_ji_landing_selection(self):
+        """开始酉鸡技能降落点选择模式"""
         cur = self.game.players[self.game.current_player_idx]
         level = cur.skill_mgr.skills['鸡']['level']
 
-        # 允许起飞/降落的地皮
+        # 检查当前位置是否符合起飞条件
+        current_tile = self.game.board.tiles[cur.position]
         def allow_start(t):
             return t.owner == cur or (t.owner is None and self.game._is_property_tile(t))
 
-        if self.ji_sub_modal == 'select_from':
-            title = "选择起飞格"
-            tiles = [t for t in self.game.board.tiles if allow_start(t)]
-            key = 'from_idx'
-        elif self.ji_sub_modal == 'select_to':
-            title = "选择降落格"
-            if level == SkillLevel.I:
-                tiles = [t for t in self.game.board.tiles if allow_start(t)]
-            elif level == SkillLevel.II:
-                tiles = [t for t in self.game.board.tiles if t.owner is None and self.game._is_property_tile(t)]
-            else:
-                tiles = [t for t in self.game.board.tiles if self.game._is_property_tile(t)]
-            tiles = [t for t in tiles if t.idx != self.ji_from]
-            key = 'to_idx'
-        else:
+        if not allow_start(current_tile):
+            self.log.append(f'{fmt_name(cur)} 当前位置无法起飞（需要在自有或公共地皮）')
+            self._scroll_to_bottom()
             return
 
-        items = [f"{t.idx} {t.name}" for t in tiles]
-        self._render_generic_modal(title, items, 'ji', key)
+        # 根据技能等级确定可降落的地皮
+        if level == SkillLevel.I:
+            valid_tiles = [t for t in self.game.board.tiles if allow_start(t)]
+        elif level == SkillLevel.II:
+            valid_tiles = [t for t in self.game.board.tiles
+                        if t.owner is None and self.game._is_property_tile(t)]
+        else:  # SkillLevel.III
+            valid_tiles = [t for t in self.game.board.tiles
+                        if self.game._is_property_tile(t)]
+
+        # 过滤掉当前位置
+        self.ji_valid_tiles = [t for t in valid_tiles if t.idx != cur.position]
+
+        # 验证距离限制（拐角数）
+        final_valid_tiles = []
+        max_corners = {SkillLevel.I: 0, SkillLevel.II: 1, SkillLevel.III: 2}[level]
+        for tile in self.ji_valid_tiles:
+            corners = cur.skill_mgr._count_corners(cur.position, tile.idx, 48)
+            if corners <= max_corners:
+                final_valid_tiles.append(tile)
+
+        self.ji_valid_tiles = final_valid_tiles
+
+        if not self.ji_valid_tiles:
+            self.log.append(f'{fmt_name(cur)} 当前等级下无可降落地点')
+            self._scroll_to_bottom()
+            return
+
+        self.ji_mode = 'selecting_to'
+        current_name = current_tile.name
+        self.log.append(f'{fmt_name(cur)} 从「{current_name}」起飞，请选择降落地点...')
+        self._scroll_to_bottom()
+
+    def _handle_ji_landing_click(self, tile_idx):
+        """处理酉鸡技能降落点点击"""
+        cur = self.game.players[self.game.current_player_idx]
+
+        # 执行技能
+        ok, msg = cur.skill_mgr.use_active_skill(
+            option={'from_idx': cur.position, 'to_idx': tile_idx}
+        )
+        self.log.append(msg)
+        self._scroll_to_bottom()
+
+        # 退出选择模式
+        self._exit_ji_selection()
+
+    def _exit_ji_selection(self):
+        """退出酉鸡技能选择模式"""
+        self.ji_mode = None
+        self.ji_valid_tiles = []
 
     def _modal_handle_click(self, pos):
         if self.active_modal == 'settings':
@@ -1458,6 +1548,13 @@ class GameUI:
                         self.log_scroll = min(max_scroll, self.log_scroll + 1)
                     else:
                         self.handle_click(event.pos)
+
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        if self.ji_mode == 'selecting_to':
+                            self._exit_ji_selection()
+                            self.log.append('取消技能选择')
+                            self._scroll_to_bottom()
 
             self.draw_board()
             self.draw_info()
