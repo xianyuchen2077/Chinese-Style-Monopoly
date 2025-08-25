@@ -262,6 +262,17 @@ class GameUI:
                 sprites.append(None)
         return sprites
 
+    def _draw_player_sprite(self, idx, cx, cy, alpha=255):
+        sprite = self.player_sprites[idx] if idx < len(self.player_sprites) else None
+        if sprite:
+            img = sprite.copy()
+            img.set_alpha(alpha)
+            self.screen.blit(img, img.get_rect(center=(cx, cy)))
+        else:
+            color = PLAYER_COLORS[idx % 4]
+            radius = int(CELL_SIZE * 0.32)
+            pygame.draw.circle(self.screen, (*color, alpha), (cx, cy), radius)
+
     def draw_board(self):
         # 背景
         self.screen.fill(BG_COLOR)
@@ -369,86 +380,39 @@ class GameUI:
 
         # 3. 画玩家棋子
         for i, player in enumerate(self.game.players):
+            # 1. 画主体
             pos = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE) if grid_map[r][c] == player.position]
             if not pos: continue
             row, col = pos[0]
             cx = self.margin + col * CELL_SIZE + CELL_SIZE // 2
             cy = self.margin + row * CELL_SIZE + CELL_SIZE // 2
-            sprite = self.player_sprites[i] if i < len(self.player_sprites) else None
-            if sprite:
-                self.screen.blit(sprite, sprite.get_rect(center=(cx, cy)))
-            else:
-                pygame.draw.circle(self.screen, PLAYER_COLORS[i % 4], (cx, cy), int(CELL_SIZE * 0.32))
+            self._draw_player_sprite(i, cx, cy, alpha=255)
 
+            # 2. 画分身
             # ========== 寅虎分身绘制 ==========
             if player.zodiac == '虎' and player.has_clone():
-                # 主体（分身一）
-                if sprite:
-                    self.screen.blit(sprite, sprite.get_rect(center=(cx, cy)))
-                else:
-                    pygame.draw.circle(self.screen, PLAYER_COLORS[i % 4], (cx, cy), int(CELL_SIZE * 0.32))
-
-                # 分身（分身二）
-                clone_pos = player.get_clone_position()
-                if clone_pos is not None:
-                    match = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE)
-                            if grid_map[r][c] == clone_pos]
-                    if match:
-                        cr, cc = match[0]
-                    else:
-                        continue  # 或跳过绘制
-                else:
-                    continue
-                clone_cx = self.margin + cc * CELL_SIZE + CELL_SIZE // 2
-                clone_cy = self.margin + cr * CELL_SIZE + CELL_SIZE // 2
-
-                if sprite:
-                    clone_sprite = sprite.copy()
-                    clone_sprite.set_alpha(220)
-                    clone_sprite = pygame.transform.scale(
-                        clone_sprite, (int(CELL_SIZE * 0.7), int(CELL_SIZE * 0.7)))
-                    self.screen.blit(clone_sprite,
-                                    clone_sprite.get_rect(center=(clone_cx, clone_cy)))
-                else:
-                    pygame.draw.circle(self.screen, PLAYER_COLORS[i % 4],
-                                    (clone_cx, clone_cy),
-                                    int(CELL_SIZE * 0.28))
+                if player.zodiac == '虎' and player.clone_idx is not None:
+                    pos2 = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE)
+                            if grid_map[r][c] == player.clone_idx]
+                    if pos2:
+                        row2, col2 = pos2[0]
+                        cx2 = self.margin + col2*CELL_SIZE + CELL_SIZE//2
+                        cy2 = self.margin + row2*CELL_SIZE + CELL_SIZE//2
+                        self._draw_player_sprite(i, cx2, cy2, alpha=255)   # 半透明
 
             # ========== 未羊灵魂出窍半透明灵魂绘制 ==========
             elif player.zodiac == '羊':
                 skill = player.skill_mgr.skills['羊']
                 soul = skill['soul_pos']
                 if soul is not None and soul != player.position:
-                    soul_pos = [(r, c)
-                                for r in range(GRID_SIZE)
-                                for c in range(GRID_SIZE)
-                                if grid_map[r][c] == soul]
+                    soul_pos = [(r, c) for r in range(GRID_SIZE)
+                                        for c in range(GRID_SIZE)
+                                        if grid_map[r][c] == soul]
                     if soul_pos:
                         sr, sc = soul_pos[0]
                         sx = self.margin + sc * CELL_SIZE + CELL_SIZE // 2
                         sy = self.margin + sr * CELL_SIZE + CELL_SIZE // 2
-                        # 创建半透明副本
-                        ghost = sprite.copy() if sprite else None
-
-                        # 透明度（0 = 全透明，255 = 完全不透明）
-                        alpha = 200
-                        if ghost:
-                            ghost.set_alpha(alpha)
-                            self.screen.blit(ghost, ghost.get_rect(center=(sx, sy)))
-                        else:
-                            # 没有图片资源时画半透明圆
-                            ghost_surf = pygame.Surface(
-                                (int(CELL_SIZE * 0.64), int(CELL_SIZE * 0.64)),
-                                pygame.SRCALPHA
-                            )
-                            pygame.draw.circle(
-                                ghost_surf,
-                                (*PLAYER_COLORS[i % 4], alpha),
-                                (int(CELL_SIZE * 0.32), int(CELL_SIZE * 0.32)),
-                                int(CELL_SIZE * 0.32)
-                            )
-                            self.screen.blit(ghost_surf,
-                                            ghost_surf.get_rect(center=(sx, sy)))
+                        self._draw_player_sprite(i, sx, sy, alpha=200)
 
         # 4. === 地皮悬停检测 ===
         mouse_pos = pygame.mouse.get_pos()
@@ -970,16 +934,11 @@ class GameUI:
 
         # ---------------- 回合结束按钮 ----------------
         elif hasattr(self, 'end_turn_btn_rect') and self.end_turn_btn_rect.collidepoint(pos):
-            # 若存在分身子回合，仅消耗当前子回合
-            if self.game.tiger_sub_turns:
-                self.game.next_turn()
-                self.draw_info()
-                return
-            # 正常轮换
             self.game.next_turn()
             self.has_rolled = False
-            new_player = self.game.players[self.game.current_player_idx]    # 新的当前玩家
-            self.log.append(f'轮到 {fmt_name(new_player)}')
+            # 把游戏日志同步到 UI 日志
+            while self.game.log:
+                self.log.append(self.game.log.pop(0))
             self._scroll_to_bottom()
             self.draw_info()
 
@@ -993,16 +952,7 @@ class GameUI:
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
 
-        # 寅虎分身回合 → 只取当前分身的骰子
-        if self.game.tiger_sub_turns:
-            _, tag = self.game.tiger_sub_turns[0]
-            dice_result = self.game.spin_wheel()
-            # spin_wheel 返回 (main, clone) 时拆包
-            if isinstance(dice_result, tuple):
-                dice_result = dice_result[0] if tag == "main" else dice_result[1]
-        # 普通回合
-        else:
-            dice_result = self.game.spin_wheel()
+        dice_result = self.game.spin_wheel()
 
         if not player.can_move:
             reason = "被【灵鼠窃运】禁锢，无法行动" if player.status.get('shu_control', {}).get('direction') == 'stay' else "无法移动"

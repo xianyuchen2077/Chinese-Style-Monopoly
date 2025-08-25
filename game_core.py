@@ -253,11 +253,12 @@ class SkillManager:
             return False, "【猛虎分身】冷却中"
 
         # 生成两个独立子回合
-        game.tiger_sub_turns = [(self.player, "main"), (self.player, "clone")]
+        game.tiger_sub_turns = [(self.player, "clone")]
         skill['cooldown'] = 4 if level == SkillLevel.III else 3
         skill['split_turns'] = 2 if level == SkillLevel.I else 3
         skill['used'] += 1
         skill['clone_position'] = self.player.position
+        self.player.clone_idx = self.player.position   # 分身出生位置
 
         # 状态
         self.player.status['tiger_split'] = {
@@ -279,6 +280,7 @@ class SkillManager:
 
         skill['split_turns'] = 0
         skill['clone_position'] = None
+        self.player.clone_idx = None          # 合体后消失
         skill['can_merge'] = False
         self.player.status.pop('tiger_split', None)
         return True, msg
@@ -543,6 +545,8 @@ class Player:
         self.clockwise = True          # True=顺时针, False=逆时针
         self.can_move = True           # False 表示本轮不能转盘
         self.game: Optional["Game"] = None
+        self.clone_idx: Optional[int] = None   # 分身棋子的格子序号
+
 
     def move_step(self, steps):
         """返回最终步数（含方向）"""
@@ -691,20 +695,10 @@ class Game:
         """
         统一转盘逻辑：
         - 普通玩家：返回 1 个骰子点数
-        - 寅虎分身回合：返回 (main_dice, clone_dice)
         - 自动处理未羊灵魂移动
         """
         player = self.players[self.current_player_idx]
 
-        # 寅虎分身回合 → 双骰子
-        if self.tiger_sub_turns:
-            # 取当前分身标识
-            _, tag = self.tiger_sub_turns[0]
-            main_dice = random.randint(1, 10)
-            clone_dice = random.randint(1, 10)
-            return main_dice, clone_dice
-
-        # 普通回合
         dice = random.randint(1, 10)
 
         # ---- 未羊灵魂先行 ----
@@ -754,7 +748,12 @@ class Game:
         return player.position
 
     def next_turn(self):
-        # 1. 寅虎子回合
+        """
+        统一处理回合结束逻辑：
+        1. 若处于寅虎分身子回合，仅消耗当前子回合；
+        2. 否则进入正常轮换。
+        """
+        # 1. 寅虎分身子回合
         if self.tiger_sub_turns:
             player, tag = self.tiger_sub_turns.pop(0)
             self.current_player_idx = self.players.index(player)
@@ -767,29 +766,29 @@ class Game:
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
         self.turn += 1
 
-        # 清理上一位玩家状态（"刚购买地皮，不能够加盖"）
+        # 清理上一位玩家状态
         current_player = self.players[self.current_player_idx]
-        if 'just_bought' in current_player.status:
-            current_player.status.pop('just_bought', None)
+        current_player.status.pop('just_bought', None)
 
         # 恢复所有玩家的移动能力
         for p in self.players:
             p.can_move = True
-            # 处理业障状态
+            # 业障
             if 'karma' in p.status:
                 p.status['karma'] -= 1
                 if p.status['karma'] <= 0:
                     del p.status['karma']
                     self.log.append(f"{fmt_name(p)} 业障消散")
-            # 处理寅虎分身
-            if p.zodiac == '虎' and self.tiger_sub_turns == []:
+            # 寅虎分身清理
+            if p.zodiac == '虎' and not self.tiger_sub_turns:
                 p.skill_mgr.skills['虎']['clone_position'] = None
+                p.clone_idx = None
                 p.status.pop('tiger_split', None)
                 self.log.append(f"{fmt_name(p)} 分身回合结束，自动合体")
-            # 清除卯兔加速
+            # 卯兔加速
             elif p.zodiac == '兔':
                 p.skill_mgr.skills['兔']['active'] = False
-            # 未羊灵魂回合倒计时 & 强制传送
+            # 未羊灵魂
             elif p.zodiac == '羊':
                 sk = p.skill_mgr.skills['羊']
                 if sk['soul_pos'] is not None:
@@ -804,8 +803,9 @@ class Game:
                         self.log.append(f"{fmt_name(p)} {reason}，强制传送到 {p.position}")
 
         # 为即将开始回合的玩家减少冷却
-        new_current_player = self.players[self.current_player_idx]
-        new_current_player.skill_mgr.tick_cooldown()
+        new_current = self.players[self.current_player_idx]
+        new_current.skill_mgr.tick_cooldown()
+        self.log.append(f'轮到 {fmt_name(new_current)}')
 
     def player_properties(self, player):
         """返回该玩家拥有的所有地皮对象"""
