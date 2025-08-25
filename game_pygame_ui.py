@@ -335,6 +335,17 @@ class GameUI:
         if player and player.zodiac == '虎':
             img = None
 
+            if self.hu_merge_mode == 'selecting_merge':
+                if is_clone:
+                    img = self.tiger_clone_img
+                else:
+                    img = self.tiger_main_img
+                if img:
+                    img = img.copy()
+                    img.set_alpha(alpha)
+                    self.screen.blit(img, img.get_rect(center=(cx, cy)))
+                    return
+
             # 实时检测寅虎是否处于分身状态
             tiger_in_split = player.has_clone()
 

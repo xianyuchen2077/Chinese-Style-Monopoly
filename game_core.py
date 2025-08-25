@@ -279,11 +279,12 @@ class SkillManager:
 
     def _merge_clones(self, merge_to: str) -> tuple[bool, str]:
         skill = self.skills['虎']
+        # 这里添加一个把clone_position和self.player.position的位置互换
         if merge_to == 'clone' and skill['clone_position'] is not None:
             self.player.position = skill['clone_position']
-            msg = f"{fmt_name(self.player)} 合体到【阴】位置 {skill['clone_position']}"
+            msg = f"{fmt_name(self.player)} 合体到【阳】位置 {skill['clone_position']}"
         else:
-            msg = f"{fmt_name(self.player)} 合体到【阳】位置 {self.player.position}"
+            msg = f"{fmt_name(self.player)} 合体到【阴】位置 {self.player.position}"
 
         # 统一清理
         skill['split_turns'] = 0
@@ -800,16 +801,6 @@ class Game:
                 skill = p.skill_mgr.skills['虎']
                 if skill['split_turns'] > 0:
                     skill['split_turns'] -= 1
-                    if skill['split_turns'] == 0:
-                        # # 真正结束，调用合体
-                        # _, msg = p.skill_mgr._merge_clones('main')  # 默认回到主体
-                        # self.log.append(msg)        # 日志：自动合体
-                        # p.clone_idx = None
-                        # p.status.pop('tiger_split', None)
-
-                        # 不再直接合体，而是让 UI 进入“选择合体位置”阶段
-                        # 记录到 UI 层的变量即可
-                        pass   # 什么都不做，等 UI 层触发
             # 卯兔加速
             elif p.zodiac == '兔':
                 p.skill_mgr.skills['兔']['active'] = False
