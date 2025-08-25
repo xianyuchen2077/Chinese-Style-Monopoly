@@ -1039,9 +1039,20 @@ class GameUI:
         elif hasattr(self, 'end_turn_btn_rect') and self.end_turn_btn_rect.collidepoint(pos):
             self.game.next_turn()
             self.has_rolled = False
+
             # 把游戏日志同步到 UI 日志
             while self.game.log:
                 self.log.append(self.game.log.pop(0))
+
+            # 检查寅虎是否需要强制合体
+            cur = self.game.players[self.game.current_player_idx]
+            if cur.zodiac == '虎' and cur.has_clone() is False and cur.clone_idx is not None:
+                # 分身回合已结束，但 clone_idx 还在 → 需要玩家手动合体
+                self.hu_merge_player = cur
+                self.hu_merge_cells  = [cur.position, cur.clone_idx]
+                self.hu_merge_mode   = 'selecting_merge'
+                self.log.append(f"{fmt_name(cur)} 分身回合全部结束，请选择合体位置（点击高亮格子）")
+
             self._scroll_to_bottom()
             self.draw_info()
 
@@ -1050,6 +1061,28 @@ class GameUI:
             clicked_tile = self._get_clicked_tile(pos)
             if clicked_tile is not None and clicked_tile in [t.idx for t in self.ji_valid_tiles]:
                 self._handle_ji_landing_click(clicked_tile)
+                return
+
+        # ---------------- 寅虎技能：强制合体处理 ----------------
+        if self.hu_merge_mode == 'selecting_merge':
+            clicked_tile = self._get_clicked_tile(pos)
+            if (
+                clicked_tile is not None
+                and self.hu_merge_player is not None
+                and clicked_tile in self.hu_merge_cells
+                and hasattr(self.hu_merge_player, "position")
+                and hasattr(self.hu_merge_player, "skill_mgr")
+                and hasattr(self.hu_merge_player.skill_mgr, "_merge_clones")
+            ):
+                merge_to = 'main' if clicked_tile == self.hu_merge_player.position else 'clone'
+                ok, msg = self.hu_merge_player.skill_mgr._merge_clones(merge_to)
+                self.log.append(msg)
+                self._scroll_to_bottom()
+
+                # 清理 UI 状态
+                self.hu_merge_mode   = None
+                self.hu_merge_cells  = []
+                self.hu_merge_player = None
                 return
 
     def spin_wheel(self):

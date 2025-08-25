@@ -281,9 +281,9 @@ class SkillManager:
         skill = self.skills['虎']
         if merge_to == 'clone' and skill['clone_position'] is not None:
             self.player.position = skill['clone_position']
-            msg = f"{fmt_name(self.player)} 合体到分身位置 {skill['clone_position']}"
+            msg = f"{fmt_name(self.player)} 合体到【阴】位置 {skill['clone_position']}"
         else:
-            msg = f"{fmt_name(self.player)} 合体到主体位置 {self.player.position}"
+            msg = f"{fmt_name(self.player)} 合体到【阳】位置 {self.player.position}"
 
         # 统一清理
         skill['split_turns'] = 0
@@ -780,28 +780,36 @@ class Game:
         self.turn += 1
 
         # 清理上一位玩家状态
-        current_player = self.players[self.current_player_idx]
-        current_player.status.pop('just_bought', None)
+        new_current = self.players[self.current_player_idx]
+        new_current.status.pop('just_bought', None)
 
         # 恢复所有玩家的移动能力
         for p in self.players:
             p.can_move = True
+            p.skill_mgr.tick_cooldown()   # 统一减 CD
+
             # 业障
             if 'karma' in p.status:
                 p.status['karma'] -= 1
                 if p.status['karma'] <= 0:
                     del p.status['karma']
                     self.log.append(f"{fmt_name(p)} 业障消散")
-            # 寅虎分身清理
-            if p.zodiac == '虎' and not self.tiger_sub_turns:
-                # 本轮是“阳”回合结束
-                    skill = p.skill_mgr.skills['虎']
-                    if skill['split_turns'] > 0:
-                        skill['split_turns'] -= 1
-                        if skill['split_turns'] == 0:
-                            p.clone_idx = None
-                            p.status.pop('tiger_split', None)
-                            self.log.append(f"{fmt_name(p)} 分身回合全部结束，自动合体")
+
+            # 寅虎分身清理：只在“主体回合”结束时做一次
+            if p.zodiac == '虎':
+                skill = p.skill_mgr.skills['虎']
+                if skill['split_turns'] > 0:
+                    skill['split_turns'] -= 1
+                    if skill['split_turns'] == 0:
+                        # # 真正结束，调用合体
+                        # _, msg = p.skill_mgr._merge_clones('main')  # 默认回到主体
+                        # self.log.append(msg)        # 日志：自动合体
+                        # p.clone_idx = None
+                        # p.status.pop('tiger_split', None)
+
+                        # 不再直接合体，而是让 UI 进入“选择合体位置”阶段
+                        # 记录到 UI 层的变量即可
+                        pass   # 什么都不做，等 UI 层触发
             # 卯兔加速
             elif p.zodiac == '兔':
                 p.skill_mgr.skills['兔']['active'] = False
@@ -819,9 +827,6 @@ class Game:
                         reason = "灵魂出窍回合数超出最长回合数" if sk['soul_turns'] <= 0 else "灵魂出窍超出最远距离"
                         self.log.append(f"{fmt_name(p)} {reason}，强制传送到 {p.position}")
 
-        # 为即将开始回合的玩家减少冷却
-        new_current = self.players[self.current_player_idx]
-        new_current.skill_mgr.tick_cooldown()
         self.log.append(f'轮到 {fmt_name(new_current)}')
 
     def player_properties(self, player):
