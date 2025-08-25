@@ -174,9 +174,16 @@ def choose_players_ui():
         pygame.display.flip()
         clock.tick(60)
 
-def fmt_name(player):
-    """返回统一格式：[玩家名]角色名"""
-    return f"[{player.name}]{EARTHLY_NAMES[player.zodiac]}"
+def fmt_name(player, tag: str = "") -> str:
+    """
+    返回统一格式：[玩家名]角色名
+    寅虎分身回合时追加【阴】【阳】
+    """
+    base = f"[{player.name}]{EARTHLY_NAMES[player.zodiac]}"
+    if player.zodiac == '虎' and tag:          # 仅在分身回合
+        mark = '阳' if tag == 'main' else '阴'
+        return f"{base}【{mark}】"
+    return base
 
 class GameUI:
     def __init__(self):
@@ -250,9 +257,27 @@ class GameUI:
         folder = os.path.join(self.base_dir, 'assets', 'Character')
         os.makedirs(folder, exist_ok=True)
         sprites = []
+        self.tiger_main_img = None     # 寅虎【阳】图
+        self.tiger_clone_img = None    # 寅虎【阴】图
+
         for player in self.game.players:
             file_name = ZODIAC_FILES.get(player.zodiac, None)
             path = os.path.join(folder, file_name) if file_name else None
+
+            # 寅虎特殊处理
+            if player.zodiac == '虎':
+                main_path = os.path.join(folder, 'hu_main.png')
+                clone_path = os.path.join(folder, 'hu_clone.png')
+                if os.path.exists(main_path):
+                    img = pygame.image.load(main_path).convert_alpha()
+                    img = pygame.transform.smoothscale(img, (int(CELL_SIZE * 0.8),) * 2)
+                    self.tiger_main_img = img
+                if os.path.exists(clone_path):
+                    img = pygame.image.load(clone_path).convert_alpha()
+                    img = pygame.transform.smoothscale(img, (int(CELL_SIZE * 0.8),) * 2)
+                    self.tiger_clone_img = img
+
+            # 通用生肖图
             if path and os.path.exists(path):
                 img = pygame.image.load(path).convert_alpha()
                 size = int(CELL_SIZE * 0.8)
@@ -262,7 +287,25 @@ class GameUI:
                 sprites.append(None)
         return sprites
 
-    def _draw_player_sprite(self, idx, cx, cy, alpha=255):
+    def _draw_player_sprite(self, idx, cx, cy, alpha=255,
+                            player=None, is_clone=False):
+        """
+        idx: 玩家在列表中的索引
+        cx, cy: 屏幕坐标
+        alpha: 透明度
+        player: 当前要画的 Player 对象（可选）
+        is_clone: 是否为寅虎分身（仅在 player 为虎时有效）
+        """
+        # 寅虎专用图
+        if player and player.zodiac == '虎':
+            img = self.tiger_clone_img if is_clone else self.tiger_main_img
+            if img:
+                img = img.copy()
+                img.set_alpha(alpha)
+                self.screen.blit(img, img.get_rect(center=(cx, cy)))
+                return
+
+        # 通用生肖图或兜底圆
         sprite = self.player_sprites[idx] if idx < len(self.player_sprites) else None
         if sprite:
             img = sprite.copy()
@@ -826,22 +869,22 @@ class GameUI:
                     else:
                         self.log.append("无业障，终点100%摧毁他人建筑")
             elif cur.zodiac == '虎':
-                # 检查是否分身
-                if hasattr(cur, 'skill_mgr') and cur.skill_mgr.skills['虎']['split_turns'] > 0:
-                    # 罗盘已转完，准备进入合体高亮
-                    if cur.skill_mgr.skills['虎']['split_turns'] == 0:
-                        self.hu_merge_player = cur
-                        self.hu_merge_cells  = [cur.position, cur.get_clone_position()]
-                        self.hu_merge_mode   = 'selecting_merge'
-                        self.log.append("请选择合体位置（点击高亮格子）")
-                        self._scroll_to_bottom()
-                    else:
-                        remaining = cur.skill_mgr.skills['虎']['split_turns']
-                        self.log.append(f'{fmt_name(cur)} 已处于分身状态，剩余{remaining}回合')
-                        self._scroll_to_bottom()
-                    return  # 让转盘/合体流程接管
+                # 1) 分身回合已走完 → 进入合体选择
+                if cur.skill_mgr.skills['虎']['split_turns'] == 0 and cur.clone_idx is not None:
+                    self.hu_merge_player = cur
+                    self.hu_merge_cells = [cur.position, cur.clone_idx]
+                    self.hu_merge_mode = 'selecting_merge'
+                    self.log.append("请选择合体位置（点击高亮格子）")
+                    self._scroll_to_bottom()
+                    return
+                # 2) 仍在分身回合内
+                if cur.skill_mgr.skills['虎']['split_turns'] > 0:
+                    remaining = cur.skill_mgr.skills['虎']['split_turns']
+                    self.log.append(f'{fmt_name(cur)} 已处于分身状态，剩余{remaining}回合')
+                    self._scroll_to_bottom()
+                    return
 
-                # 未分身则发动技能
+                # 3) 未分身且未转动罗盘 → 发动技能
                 if self.has_rolled:
                     self.log.append(f'{fmt_name(cur)} 本回合已转动罗盘，无法再使用技能')
                     self._scroll_to_bottom()
@@ -858,6 +901,7 @@ class GameUI:
                         SkillLevel.III: "伤害减免80%，奖励1.5倍，回合结束后点击高亮格子合体"
                     }
                     self.log.append(f"分身效果：{effects[level]}，持续{duration}回合")
+                    self.log.append(f"{fmt_name(cur, 'main')} 回合开始")
             elif cur.zodiac == '兔':
                 # 卯兔无目标
                 ok, msg = cur.skill_mgr.use_active_skill()

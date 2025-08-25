@@ -36,9 +36,16 @@ EARTHLY_NAMES = {
 }
 
 # 统一日志玩家名称
-def fmt_name(player):
-    """返回统一格式：[玩家名]角色名"""
-    return f"[{player.name}]{EARTHLY_NAMES[player.zodiac]}"
+def fmt_name(player, tag: str = "") -> str:
+    """
+    返回统一格式：[玩家名]角色名
+    寅虎分身回合时追加【阴】【阳】
+    """
+    base = f"[{player.name}]{EARTHLY_NAMES[player.zodiac]}"
+    if player.zodiac == '虎' and tag:          # 仅在分身回合
+        mark = '阳' if tag == 'main' else '阴'
+        return f"{base}【{mark}】"
+    return base
 
 # ===== 子鼠技能数据结构 =====
 SKILL_SHU = {
@@ -278,6 +285,7 @@ class SkillManager:
         else:
             msg = f"{fmt_name(self.player)} 合体到主体位置 {self.player.position}"
 
+        # 统一清理
         skill['split_turns'] = 0
         skill['clone_position'] = None
         self.player.clone_idx = None          # 合体后消失
@@ -757,7 +765,12 @@ class Game:
         if self.tiger_sub_turns:
             player, tag = self.tiger_sub_turns.pop(0)
             self.current_player_idx = self.players.index(player)
-            self.log.append(f"【{fmt_name(player)}】【{tag}】回合开始")
+            self.log.append(f"{fmt_name(player, tag)} 回合开始")
+
+            if tag == 'clone':
+                # 分身回合：把当前格子临时换成分身格子
+                player.position, player.clone_idx = player.clone_idx, player.position
+
             player.can_move = True
             player.skill_mgr.tick_cooldown()
             return
@@ -781,10 +794,14 @@ class Game:
                     self.log.append(f"{fmt_name(p)} 业障消散")
             # 寅虎分身清理
             if p.zodiac == '虎' and not self.tiger_sub_turns:
-                p.skill_mgr.skills['虎']['clone_position'] = None
-                p.clone_idx = None
-                p.status.pop('tiger_split', None)
-                self.log.append(f"{fmt_name(p)} 分身回合结束，自动合体")
+                # 本轮是“阳”回合结束
+                    skill = p.skill_mgr.skills['虎']
+                    if skill['split_turns'] > 0:
+                        skill['split_turns'] -= 1
+                        if skill['split_turns'] == 0:
+                            p.clone_idx = None
+                            p.status.pop('tiger_split', None)
+                            self.log.append(f"{fmt_name(p)} 分身回合全部结束，自动合体")
             # 卯兔加速
             elif p.zodiac == '兔':
                 p.skill_mgr.skills['兔']['active'] = False
