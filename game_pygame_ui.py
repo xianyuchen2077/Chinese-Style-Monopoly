@@ -257,35 +257,70 @@ class GameUI:
         folder = os.path.join(self.base_dir, 'assets', 'Character')
         os.makedirs(folder, exist_ok=True)
         sprites = []
-        self.tiger_main_img = None     # 寅虎【阳】图
-        self.tiger_clone_img = None    # 寅虎【阴】图
 
+        # 1. 先把所有生肖的普通图读出来，顺序与 players 一一对应
         for player in self.game.players:
-            file_name = ZODIAC_FILES.get(player.zodiac, None)
+            file_name = ZODIAC_FILES.get(player.zodiac)
             path = os.path.join(folder, file_name) if file_name else None
-
-            # 寅虎特殊处理
-            if player.zodiac == '虎':
-                main_path = os.path.join(folder, 'hu_main.png')
-                clone_path = os.path.join(folder, 'hu_clone.png')
-                if os.path.exists(main_path):
-                    img = pygame.image.load(main_path).convert_alpha()
-                    img = pygame.transform.smoothscale(img, (int(CELL_SIZE * 0.8),) * 2)
-                    self.tiger_main_img = img
-                if os.path.exists(clone_path):
-                    img = pygame.image.load(clone_path).convert_alpha()
-                    img = pygame.transform.smoothscale(img, (int(CELL_SIZE * 0.8),) * 2)
-                    self.tiger_clone_img = img
-
-            # 通用生肖图
             if path and os.path.exists(path):
                 img = pygame.image.load(path).convert_alpha()
-                size = int(CELL_SIZE * 0.8)
-                img = pygame.transform.smoothscale(img, (size, size))
+                img = pygame.transform.smoothscale(
+                    img, (int(CELL_SIZE * 0.8), int(CELL_SIZE * 0.8))
+                )
                 sprites.append(img)
             else:
                 sprites.append(None)
+
+        # 2. 寅虎专用图
+        self.tiger_normal_img = None    # 普通状态（非分身时）
+        self.tiger_main_img = None      # 分身状态下的主体图
+        self.tiger_clone_img = None     # 分身状态下的分身图
+
+        tiger_player = next((p for p in self.game.players if p.zodiac == '虎'), None)
+        if tiger_player:
+            tiger_idx = self.game.players.index(tiger_player)
+
+            # 普通状态图片（优先使用专用图，没有就用通用虎图）
+            normal_path = os.path.join(folder, 'hu_normal.png')
+            if os.path.exists(normal_path):
+                self.tiger_normal_img = pygame.image.load(normal_path).convert_alpha()
+                self.tiger_normal_img = pygame.transform.smoothscale(
+                    self.tiger_normal_img, (int(CELL_SIZE * 0.8), int(CELL_SIZE * 0.8))
+                )
+            else:
+                # 使用通用虎图作为普通状态
+                self.tiger_normal_img = sprites[tiger_idx]
+
+            # 分身状态主体图片
+            main_path = os.path.join(folder, 'hu_main.png')
+            if os.path.exists(main_path):
+                self.tiger_main_img = pygame.image.load(main_path).convert_alpha()
+                self.tiger_main_img = pygame.transform.smoothscale(
+                    self.tiger_main_img, (int(CELL_SIZE * 0.8), int(CELL_SIZE * 0.8))
+                )
+            else:
+                # 没有专用主体图，使用普通图
+                self.tiger_main_img = self.tiger_normal_img
+
+            # 分身状态分身图片
+            clone_path = os.path.join(folder, 'hu_clone.png')
+            if os.path.exists(clone_path):
+                self.tiger_clone_img = pygame.image.load(clone_path).convert_alpha()
+                self.tiger_clone_img = pygame.transform.smoothscale(
+                    self.tiger_clone_img, (int(CELL_SIZE * 0.8), int(CELL_SIZE * 0.8))
+                )
+            else:
+                # 没有专用分身图，使用普通图加蓝色滤镜
+                if self.tiger_normal_img is not None:
+                    clone = self.tiger_normal_img.copy()
+                    # 创建蓝色滤镜效果
+                    blue_overlay = pygame.Surface(clone.get_size(), pygame.SRCALPHA)
+                    blue_overlay.fill((100, 150, 255, 100))
+                    clone.blit(blue_overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                    self.tiger_clone_img = clone
+
         return sprites
+
 
     def _draw_player_sprite(self, idx, cx, cy, alpha=255,
                             player=None, is_clone=False):
@@ -296,9 +331,33 @@ class GameUI:
         player: 当前要画的 Player 对象（可选）
         is_clone: 是否为寅虎分身（仅在 player 为虎时有效）
         """
-        # 寅虎专用图
+        # 寅虎专用图逻辑
         if player and player.zodiac == '虎':
-            img = self.tiger_clone_img if is_clone else self.tiger_main_img
+            img = None
+
+            # 实时检测寅虎是否处于分身状态
+            tiger_in_split = player.has_clone()
+
+            if tiger_in_split:
+                # 检查当前是否处于寅虎子回合中
+                is_in_tiger_subturn = hasattr(self.game, 'tiger_sub_turns') and self.game.tiger_sub_turns
+                current_subturn_tag = None
+                if is_in_tiger_subturn and self.game.tiger_sub_turns:
+                    current_subturn_tag = self.game.tiger_sub_turns[0][1]  # "main" 或 "clone"
+
+                # 根据子回合状态决定图片显示
+                if current_subturn_tag == "clone":
+                    # 当前是【阴】回合，位置已经交换
+                    # position现在是分身位置，clone_idx是主体位置
+                    img = self.tiger_clone_img if not is_clone else self.tiger_main_img
+                else:
+                    # 当前是【阳】回合或正常状态
+                    # position是主体位置，clone_idx是分身位置
+                    img = self.tiger_clone_img if is_clone else self.tiger_main_img
+            else:
+                # 非分身状态：使用普通图
+                img = self.tiger_normal_img
+
             if img:
                 img = img.copy()
                 img.set_alpha(alpha)
@@ -429,19 +488,19 @@ class GameUI:
             row, col = pos[0]
             cx = self.margin + col * CELL_SIZE + CELL_SIZE // 2
             cy = self.margin + row * CELL_SIZE + CELL_SIZE // 2
-            self._draw_player_sprite(i, cx, cy, alpha=255)
+            self._draw_player_sprite(i, cx, cy, alpha=255, player=player, is_clone=False)
 
             # 2. 画分身
             # ========== 寅虎分身绘制 ==========
             if player.zodiac == '虎' and player.has_clone():
-                if player.zodiac == '虎' and player.clone_idx is not None:
+                if player.clone_idx is not None:
                     pos2 = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE)
                             if grid_map[r][c] == player.clone_idx]
                     if pos2:
                         row2, col2 = pos2[0]
                         cx2 = self.margin + col2*CELL_SIZE + CELL_SIZE//2
                         cy2 = self.margin + row2*CELL_SIZE + CELL_SIZE//2
-                        self._draw_player_sprite(i, cx2, cy2, alpha=255)   # 半透明
+                        self._draw_player_sprite(i, cx2, cy2, alpha=255, player=player, is_clone=True)
 
             # ========== 未羊灵魂出窍半透明灵魂绘制 ==========
             elif player.zodiac == '羊':

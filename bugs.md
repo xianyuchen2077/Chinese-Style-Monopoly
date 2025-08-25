@@ -35,3 +35,5 @@ def calculate_rent_with_karma(self, base_rent):
     return base_rent
 
 子鼠禁锢一回合不会自动解除
+
+寅虎合体的时候不能够主动选择
