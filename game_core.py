@@ -278,13 +278,24 @@ class SkillManager:
         return True, f"{fmt_name(self.player)} 发动【猛虎分身】，即将进入双身循环"
 
     def _merge_clones(self, merge_to: str) -> tuple[bool, str]:
+        """
+        合体逻辑：
+        merge_to='main' → 合体到主体【阳】所在格子
+        merge_to='clone'→ 合体到分身【阴】所在格子
+        """
         skill = self.skills['虎']
-        # 这里添加一个把clone_position和self.player.position的位置互换
+        skill_level = skill['level']
+
+        # 计算最终落点
         if merge_to == 'clone' and skill['clone_position'] is not None:
-            self.player.position = skill['clone_position']
-            msg = f"{fmt_name(self.player)} 合体到【阳】位置 {skill['clone_position']}"
-        else:
-            msg = f"{fmt_name(self.player)} 合体到【阴】位置 {self.player.position}"
+            final_pos = skill['clone_position']
+            mark = '阴'
+        else:                       # 默认合体到主体（阳）
+            final_pos = self.player.position
+            mark = '阳'
+
+        # 更新玩家位置
+        self.player.position = final_pos
 
         # 统一清理
         skill['split_turns'] = 0
@@ -292,7 +303,8 @@ class SkillManager:
         self.player.clone_idx = None          # 合体后消失
         skill['can_merge'] = False
         self.player.status.pop('tiger_split', None)
-        return True, msg
+
+        return True, f"{fmt_name(self.player)} 合体到【{mark}】位置 {final_pos}"
 
     def upgrade_hu(self) -> bool:
         skill = self.skills['虎']
@@ -762,6 +774,13 @@ class Game:
         1. 若处于寅虎分身子回合，仅消耗当前子回合；
         2. 否则进入正常轮换。
         """
+        for p in self.players:
+            if p.zodiac == '虎':
+                sk = p.skill_mgr.skills['虎']
+                if sk['split_turns'] > 0 and not self.tiger_sub_turns:
+                    # 本轮尚未生成，补齐全套：【阳】【阴】
+                    self.tiger_sub_turns = [(p, "main"), (p, "clone")]
+
         # 1. 寅虎分身子回合
         if self.tiger_sub_turns:
             player, tag = self.tiger_sub_turns.pop(0)
@@ -770,7 +789,21 @@ class Game:
 
             if tag == 'clone':
                 # 分身回合：把当前格子临时换成分身格子
-                player.position, player.clone_idx = player.clone_idx, player.position
+                if player.clone_idx is not None:
+                    tmp = player.position
+                    player.position = player.clone_idx
+                    player.clone_idx = tmp
+
+                # 【阴】回合结束：递减计数
+                skill = player.skill_mgr.skills['虎']
+                if skill['split_turns'] > 0:
+                    skill['split_turns'] -= 1
+                    if skill['split_turns'] == 0:
+                        self.log.append(f"{fmt_name(player)} 分身回合全部结束，请选择合体位置（点击高亮格子）")
+                        player.status['tiger_force_merge'] = True
+                else:
+                    # 已经到 0，不再插入，等正常轮换
+                    pass
 
             player.can_move = True
             player.skill_mgr.tick_cooldown()
@@ -796,13 +829,8 @@ class Game:
                     del p.status['karma']
                     self.log.append(f"{fmt_name(p)} 业障消散")
 
-            # 寅虎分身清理：只在“主体回合”结束时做一次
-            if p.zodiac == '虎':
-                skill = p.skill_mgr.skills['虎']
-                if skill['split_turns'] > 0:
-                    skill['split_turns'] -= 1
             # 卯兔加速
-            elif p.zodiac == '兔':
+            if p.zodiac == '兔':
                 p.skill_mgr.skills['兔']['active'] = False
             # 未羊灵魂
             elif p.zodiac == '羊':

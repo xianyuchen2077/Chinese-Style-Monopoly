@@ -335,18 +335,21 @@ class GameUI:
         if player and player.zodiac == '虎':
             img = None
 
+            # 强制合体模式：特殊处理，确保两个位置都显示图片
             if self.hu_merge_mode == 'selecting_merge':
+                # 在强制合体模式下，明确显示主体和分身
                 if is_clone:
-                    img = self.tiger_clone_img
+                    img = self.tiger_clone_img  # 分身位置用分身图
                 else:
-                    img = self.tiger_main_img
+                    img = self.tiger_main_img   # 主体位置用主体图
+
                 if img:
                     img = img.copy()
                     img.set_alpha(alpha)
                     self.screen.blit(img, img.get_rect(center=(cx, cy)))
                     return
 
-            # 实时检测寅虎是否处于分身状态
+            # 检查寅虎是否处于分身状态
             tiger_in_split = player.has_clone()
 
             if tiger_in_split:
@@ -356,15 +359,15 @@ class GameUI:
                 if is_in_tiger_subturn and self.game.tiger_sub_turns:
                     current_subturn_tag = self.game.tiger_sub_turns[0][1]  # "main" 或 "clone"
 
-                # 根据子回合状态决定图片显示
+                # 根据当前回合和位置决定图片显示
                 if current_subturn_tag == "clone":
-                    # 当前是【阴】回合，位置已经交换
-                    # position现在是分身位置，clone_idx是主体位置
+                    # 当前是【阴】回合（分身回合）
+                    # position现在是分身的当前位置，clone_idx是主体位置
                     img = self.tiger_clone_img if not is_clone else self.tiger_main_img
                 else:
-                    # 当前是【阳】回合或正常状态
-                    # position是主体位置，clone_idx是分身位置
-                    img = self.tiger_clone_img if is_clone else self.tiger_main_img
+                    # 当前是【阳】回合（主体回合）或正常状态
+                    # position是主体的当前位置，clone_idx是分身位置
+                    img = self.tiger_main_img if not is_clone else self.tiger_clone_img
             else:
                 # 非分身状态：使用普通图
                 img = self.tiger_normal_img
@@ -504,6 +507,18 @@ class GameUI:
             # 2. 画分身
             # ========== 寅虎分身绘制 ==========
             if player.zodiac == '虎' and player.has_clone():
+                if player.clone_idx is not None:
+                    pos2 = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE)
+                            if grid_map[r][c] == player.clone_idx]
+                    if pos2:
+                        row2, col2 = pos2[0]
+                        cx2 = self.margin + col2*CELL_SIZE + CELL_SIZE//2
+                        cy2 = self.margin + row2*CELL_SIZE + CELL_SIZE//2
+                        self._draw_player_sprite(i, cx2, cy2, alpha=255, player=player, is_clone=True)
+
+            # ========== 寅虎强制合体模式下的特殊绘制 ==========
+            elif player.zodiac == '虎' and self.hu_merge_mode == 'selecting_merge' and self.hu_merge_player == player:
+                # 强制合体模式：确保两个位置都显示图片
                 if player.clone_idx is not None:
                     pos2 = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE)
                             if grid_map[r][c] == player.clone_idx]
@@ -953,7 +968,6 @@ class GameUI:
                     self.log.append(f'{fmt_name(cur)} 已处于分身状态，剩余{remaining}回合')
                     self._scroll_to_bottom()
                     return
-
                 # 3) 未分身且未转动罗盘 → 发动技能
                 if self.has_rolled:
                     self.log.append(f'{fmt_name(cur)} 本回合已转动罗盘，无法再使用技能')
@@ -1057,12 +1071,12 @@ class GameUI:
 
             # 检查寅虎是否需要强制合体
             cur = self.game.players[self.game.current_player_idx]
-            if cur.zodiac == '虎' and cur.has_clone() is False and cur.clone_idx is not None:
+            if cur.status.pop('tiger_force_merge', False):
                 # 分身回合已结束，但 clone_idx 还在 → 需要玩家手动合体
                 self.hu_merge_player = cur
                 self.hu_merge_cells  = [cur.position, cur.clone_idx]
                 self.hu_merge_mode   = 'selecting_merge'
-                self.log.append(f"{fmt_name(cur)} 分身回合全部结束，请选择合体位置（点击高亮格子）")
+                # return
 
             self._scroll_to_bottom()
             self.draw_info()
@@ -1081,20 +1095,35 @@ class GameUI:
                 clicked_tile is not None
                 and self.hu_merge_player is not None
                 and clicked_tile in self.hu_merge_cells
-                and hasattr(self.hu_merge_player, "position")
-                and hasattr(self.hu_merge_player, "skill_mgr")
-                and hasattr(self.hu_merge_player.skill_mgr, "_merge_clones")
             ):
-                merge_to = 'main' if clicked_tile == self.hu_merge_player.position else 'clone'
-                ok, msg = self.hu_merge_player.skill_mgr._merge_clones(merge_to)
-                self.log.append(msg)
-                self._scroll_to_bottom()
+                # 确保玩家对象有必要的属性和方法
+                player = self.hu_merge_player
+                if (hasattr(player, "position") and
+                    hasattr(player, "clone_idx") and
+                    hasattr(player, "skill_mgr") and
+                    hasattr(player.skill_mgr, "_merge_clones")):
 
-                # 清理 UI 状态
-                self.hu_merge_mode   = None
-                self.hu_merge_cells  = []
-                self.hu_merge_player = None
-                return
+                    # 判断点击的是主体位置还是分身位置
+                    merge_to = 'main' if clicked_tile == player.position else 'clone'
+
+                    # 调用合体方法
+                    ok, msg = player.skill_mgr._merge_clones(merge_to)
+                    self.log.append(msg)
+                    self._scroll_to_bottom()
+
+                    # 清理 UI 状态
+                    self.hu_merge_mode   = None
+                    self.hu_merge_cells  = []
+                    self.hu_merge_player = None
+                    return
+                else:
+                    # 如果玩家对象缺少必要属性，记录错误并清理状态
+                    self.log.append("错误：寅虎玩家对象状态异常，无法执行合体")
+                    self.hu_merge_mode   = None
+                    self.hu_merge_cells  = []
+                    self.hu_merge_player = None
+                    self._scroll_to_bottom()
+                    return
 
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
