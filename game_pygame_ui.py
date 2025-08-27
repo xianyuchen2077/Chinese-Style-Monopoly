@@ -38,6 +38,13 @@ ZODIAC_FILES = {
     '猴': 'hou.png', '鸡': 'ji.png', '狗': 'gou.png', '猪': 'zhu.png'
 }
 
+BUILDING_FILES = {
+    1: 'hut.png',      # 茅屋
+    2: 'tile.png',     # 瓦房
+    3: 'inn.png',      # 客栈
+    4: 'palace.png'    # 宫殿
+}
+
 # Five-element fill colors
 ELEMENT_COLORS = {
     Element.GOLD: (255, 215, 0),      # 金 - 金色
@@ -229,6 +236,7 @@ class GameUI:
         self.tile_props = self._build_tile_props()
         self.base_dir = os.path.dirname(__file__)
         self.player_sprites = self._load_player_sprites()
+        self.building_imgs = self._load_building_imgs()
         self._wheel_surface_cache = None
         # 顶部菜单与模态框
         self.menu_rects = {}
@@ -321,6 +329,20 @@ class GameUI:
 
         return sprites
 
+    def _load_building_imgs(self):
+        """一次性加载 4 张建筑等级图，返回 dict[level:int -> Surface]"""
+        folder = os.path.join(self.base_dir, 'assets', 'Buildings')
+        os.makedirs(folder, exist_ok=True)
+        imgs = {}
+        for level, filename in BUILDING_FILES.items():
+            path = os.path.join(folder, filename)
+            if os.path.exists(path):
+                img = pygame.image.load(path).convert_alpha()
+                img = pygame.transform.smoothscale(img, (22, 22))
+                imgs[level] = img
+            else:
+                imgs[level] = None   # 缺图时留空
+        return imgs
 
     def _draw_player_sprite(self, idx, cx, cy, alpha=255,
                             player=None, is_clone=False):
@@ -388,6 +410,37 @@ class GameUI:
             color = PLAYER_COLORS[idx % 4]
             radius = int(CELL_SIZE * 0.32)
             pygame.draw.circle(self.screen, (*color, alpha), (cx, cy), radius)
+
+    def _draw_star(self, center, outer_r, color):
+        # 绘制五角星
+        cx, cy = center
+        points = []
+        inner_r = outer_r * 0.5
+        for i in range(10):
+            ang = -math.pi / 2 + i * math.pi / 5
+            r = outer_r if i % 2 == 0 else inner_r
+            points.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
+        pygame.draw.polygon(self.screen, color, points)
+        pygame.draw.polygon(self.screen, (50,50,50), points, 1)
+
+    def _draw_owner_mark(self, center, tile):
+        """
+        center: (cx, cy)
+        tile  : Tile 对象
+        """
+        cx, cy = center
+        level = tile.level.value
+
+        # 1. 空地：仅五角星（表示归属）
+        if level == 0 and tile.owner:
+            star_color = ZODIAC_COLORS.get(tile.owner.zodiac, GOLD)
+            self._draw_star((cx, cy), 8, star_color)
+
+        # 2. 有建筑：仅建筑图
+        elif level in self.building_imgs and self.building_imgs[level]:
+            img = self.building_imgs[level]
+            rect = img.get_rect(center=(cx, cy))
+            self.screen.blit(img, rect)
 
     def draw_board(self):
         # 背景
@@ -492,7 +545,7 @@ class GameUI:
                 tile_obj = self.game.board.tiles[idx]
                 if tile_obj.owner:
                     star_color = ZODIAC_COLORS.get(tile_obj.owner.zodiac, GOLD)
-                    self._draw_star((x + CELL_SIZE - 14, y + 14), 8, star_color)
+                    self._draw_owner_mark((x + CELL_SIZE - 14, y + 14), tile_obj)
 
         # 3. 画玩家棋子
         for i, player in enumerate(self.game.players):
@@ -606,7 +659,7 @@ class GameUI:
 
         # 1. 购地
         self.buy_btn_rect = pygame.Rect(start_x, buy_y, btn_w, 40)
-        buy_ok = self._can_buy_now(cur_player)
+        buy_ok, reason = self.game.can_buy(cur_player)
         color_buy = (208,240,192) if buy_ok else (200,200,200)
         text_buy  = (0,100,0)     if buy_ok else (120,120,120)
         pygame.draw.rect(self.screen, color_buy, self.buy_btn_rect, border_radius=10)
@@ -620,7 +673,7 @@ class GameUI:
 
         # 2. 加盖
         self.upgrade_btn_rect = pygame.Rect(start_x + btn_w + gap, buy_y, btn_w, 40)
-        up_ok = self._can_upgrade_now(cur_player)
+        up_ok, reason = self.game.can_upgrade(cur_player)
         color_up = (255,228,196) if up_ok else (200,200,200)
         text_up  = (139,69,19)   if up_ok else (120,120,120)
         pygame.draw.rect(self.screen, color_up, self.upgrade_btn_rect, border_radius=10)
@@ -1015,7 +1068,7 @@ class GameUI:
             self._scroll_to_bottom()
             self.draw_info()    # 立即更新
 
-        # ---------------- 升级按钮 ----------------
+        # ---------------- 技能升级按钮 ----------------
         elif hasattr(self, 'upgrade_skill_btn_rect') and self.upgrade_btn_rect.collidepoint(pos):
             if cur.zodiac == '鼠':
                 if cur.skill_mgr.upgrade_shu():
@@ -1046,18 +1099,31 @@ class GameUI:
             self._scroll_to_bottom()
             self.draw_info()    # 立即更新
 
+        # ---------------- 购买按钮 ----------------
         elif hasattr(self, 'buy_btn_rect') and self.buy_btn_rect.collidepoint(pos):
-            if self._can_buy_now(cur) and self.game.buy_property(cur):
-                while self.game.log:
-                    self.log.append(self.game.log.pop(0))
-                    self._scroll_to_bottom()
+            cur = self.game.players[self.game.current_player_idx]
+            ok, reason = self.game.can_buy(cur)
+            if ok:
+                self.game.buy_property(cur)
+            else:
+                self.log.append(reason)
+            # 同步日志
+            while self.game.log:
+                self.log.append(self.game.log.pop(0))
+            self._scroll_to_bottom()
             self.draw_info()    # 立即更新
 
         elif hasattr(self, 'upgrade_btn_rect') and self.upgrade_btn_rect.collidepoint(pos):
-            if self._can_upgrade_now(cur) and self.game.upgrade_building(cur):
-                while self.game.log:
-                    self.log.append(self.game.log.pop(0))
-                    self._scroll_to_bottom()
+            cur = self.game.players[self.game.current_player_idx]
+            ok, reason = self.game.can_upgrade(cur)
+            if ok:
+                self.game.upgrade_building(cur)
+            else:
+                self.log.append(reason)
+            # 同步日志
+            while self.game.log:
+                self.log.append(self.game.log.pop(0))
+            self._scroll_to_bottom()
             self.draw_info()    # 立即更新
 
         # ---------------- 回合结束按钮 ----------------
@@ -1766,36 +1832,6 @@ class GameUI:
                 lines.append(f'{z}：{det}')
             return '\n'.join(lines)
         return ''
-
-    def _draw_star(self, center, outer_r, color):
-        # 绘制五角星
-        cx, cy = center
-        points = []
-        inner_r = outer_r * 0.5
-        for i in range(10):
-            ang = -math.pi / 2 + i * math.pi / 5
-            r = outer_r if i % 2 == 0 else inner_r
-            points.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
-        pygame.draw.polygon(self.screen, color, points)
-        pygame.draw.polygon(self.screen, (50,50,50), points, 1)
-
-    def _can_buy_now(self, player):
-        tile = self.game.current_tile(player)
-        return (
-            self.game._is_property_tile(tile) and
-            tile.owner is None and
-            player.money >= tile.price
-        )
-
-    def _can_upgrade_now(self, player):
-        tile = self.game.current_tile(player)
-        return (
-            self.game._is_property_tile(tile) and
-            tile.owner is player and
-            tile.level != BuildingLevel.PALACE and
-            not player.status.get('just_bought') and
-            player.money >= self.game.upgrade_cost(tile)
-        )
 
     def _can_advance_skill(self, player):
         if not hasattr(player, 'skill_mgr'):

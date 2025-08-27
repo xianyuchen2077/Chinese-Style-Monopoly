@@ -638,13 +638,13 @@ class Player:
 
 class Tile:
     def __init__(self, idx, name, element=None, price=0, special=None):
-        self.idx = idx
-        self.name = name
-        self.element = element
-        self.price = price
-        self.owner = None
-        self.level = BuildingLevel.EMPTY
-        self.special = special  # 特殊格子类型
+        self.idx      = idx          # 格子序号
+        self.name     = name         # 名称
+        self.element  = element      # 五行
+        self.price    = price        # 售价（空地）
+        self.owner    = None         # 所属玩家
+        self.level    = BuildingLevel.EMPTY  # 建筑等级
+        self.special  = special      # 特殊类型：start / encounter / hospital
 
 class GameBoard:
     def __init__(self):
@@ -956,61 +956,81 @@ class Game:
                 self.log.append(f'{fmt_name(player)} 稳如磐石，获得2回合保护。')
             return
 
-    # ====== 经济：购买与升级 ======
+    # ====== 地皮：购买与升级 ======
     def current_tile(self, player):
         return self.board.tiles[player.position]
 
     def _is_property_tile(self, tile):
+        """
+        判断是不是【可买卖的普通地皮】
+        不是特殊格子，有五行且有售价
+        """
         return tile.special is None and tile.element is not None and tile.price > 0
 
-    def can_buy(self, player):
-        tile = self.current_tile(player)
-        return self._is_property_tile(tile) and tile.owner is None and player.money >= tile.price
-
-    def buy_property(self, player):
+    def can_buy(self, player) -> tuple[bool, str]:
+        """
+        能否购买：1.格子可买卖 2.无主 3.有钱
+        返回 (是否可买, 原因)
+        """
         tile = self.current_tile(player)
         if not self._is_property_tile(tile):
-            self.log.append('此处不可购买。')
-            return False
+            return False, "此处不可购买"
         if tile.owner is not None:
-            self.log.append('该地皮已有主人。')
-            return False
+            return False, "该地皮已有主人"
         if player.money < tile.price:
-            self.log.append('资金不足，无法购买。')
+            return False, "资金不足"
+        return True, ""
+
+    def buy_property(self, player) -> bool:
+        ok, msg = self.can_buy(player)
+        if not ok:
+            self.log.append(msg)
             return False
+
+        tile = self.current_tile(player)
         player.money -= tile.price
         tile.owner = player
         tile.level = BuildingLevel.HUT
         player.properties.append(tile.idx)
+
         self.log.append(f'{fmt_name(player)} 购买了「{tile.name}」，建造茅屋。')
+
         # 标记本回合刚购买，禁止立刻加盖
         player.status['just_bought'] = 1
         return True
 
-    def can_upgrade(self, player):
+    def can_upgrade(self, player) -> tuple[bool, str]:
+        """
+        能否升级：1.格子可买卖 2.拥有地皮 3.等级未到最高 4.有钱
+        返回 (是否可升级, 原因)
+        """
         tile = self.current_tile(player)
-        return self._is_property_tile(tile) and tile.owner is player and tile.level != BuildingLevel.PALACE
-
-    def upgrade_cost(self, tile):
-        # 简化升级费用：基础价 × (当前等级+1) × 0.6
-        return int(tile.price * (tile.level.value + 1) * 0.6)
-
-    def upgrade_building(self, player, tile=None):
-        tile = tile or self.current_tile(player)
-        if not (self._is_property_tile(tile) and tile.owner is player):
-            self.log.append('此处不可升级。')
-            return False
-        if player.status.get('just_bought'):
-            self.log.append('刚购买本地皮，不能立即加盖。')
-            return False
+        if not self._is_property_tile(tile) or tile.owner != player:
+            return False, "此处不可升级"
         if tile.level == BuildingLevel.PALACE:
-            self.log.append('已是最高等级。')
-            return False
+            return False, "已是最高等级"
+        if player.status.get('just_bought'):
+            return False, "刚购买本地皮，不能立即加盖"
         cost = self.upgrade_cost(tile)
         if player.money < cost:
-            self.log.append(f'升级所需{cost}金币，资金不足。')
+            return False, f"升级所需{cost}金币，资金不足"
+        return True, ""
+
+    def upgrade_cost(self, tile):
+        # 简化版升级费用：基础价 × (当前等级+1) × 0.5
+        return int(tile.price * (tile.level.value + 1) * 0.5)
+        # 高级版升级费用（TODO）
+
+    def upgrade_building(self, player, tile=None) -> bool:
+        tile = tile or self.current_tile(player)
+        ok, msg = self.can_upgrade(player)
+        if not ok:
+            self.log.append(msg)
             return False
+
+        cost = self.upgrade_cost(tile)
         player.money -= cost
         tile.level = BuildingLevel(tile.level.value + 1)
+
         self.log.append(f'{fmt_name(player)} 升级了「{tile.name}」至等级{tile.level.value}。')
         return True
