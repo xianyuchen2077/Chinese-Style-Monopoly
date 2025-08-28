@@ -3,7 +3,8 @@
 
 import pygame
 import sys
-from game_core import Game, Element, BuildingLevel, EARTHLY_NAMES, SkillLevel
+from game_core import Game, Element, BuildingLevel, Player, EARTHLY_NAMES, SkillLevel
+from game_test import run_buy_test_case
 import os
 import math
 
@@ -194,6 +195,9 @@ def fmt_name(player, tag: str = "") -> str:
 
 class GameUI:
     def __init__(self):
+        ### TEST MODE ###
+        TEST_MODE = False          # 全局开关，True 时才会渲染测试按钮
+
         # 动态压缩边距/信息区宽度以适配屏幕，不改变格子大小
         display_info = pygame.display.Info()
         screen_w, screen_h = display_info.current_w, display_info.current_h
@@ -223,6 +227,7 @@ class GameUI:
             info_width = max(260, max_w - (base_grid_w + 2 * margin))
             if base_grid_w + 2 * margin + info_width > max_w:
                 margin = max(12, (max_w - base_grid_w - info_width) // 2)
+
         self.margin = margin
         self.info_width = info_width
         self.width = base_grid_w + self.margin * 2 + self.info_width
@@ -911,6 +916,106 @@ class GameUI:
             self.screen.blit(font.render(line, True, (30, 30, 30)), (px + pad, y))
             y += line_h
 
+    def _draw_top_menu(self):
+        """顶部菜单栏（仅点击，无悬停子菜单）"""
+        bar_h = 36
+        pygame.draw.rect(self.screen, (50, 50, 70), (0, 0, self.width, bar_h))
+        top_items = [('rules', '规则'), ('heroes', '英雄'), ('settings', '设置'), ('test', '测试')]
+        x = 12
+        self.menu_rects = {}
+        for key, label in top_items:
+            surf = FONT_SMALL.render(label, True, WHITE)
+            rect = pygame.Rect(x, 4, surf.get_width() + 20, bar_h - 8)
+            pygame.draw.rect(self.screen, (80, 80, 110), rect, border_radius=8)
+            self.screen.blit(surf, surf.get_rect(center=rect.center))
+            self.menu_rects[key] = rect
+            x += rect.width + 8
+
+    def _draw_tooltip(self, mouse_pos, text, max_w=260):
+        tip_font = get_chinese_font(16)
+        # 逐字换行
+        lines = []
+        remaining = text
+        while remaining:
+            cut = ''
+            for i in range(1, len(remaining)+1):
+                s = tip_font.render(remaining[:i], True, (30,30,30))
+                if s.get_width() > max_w - 12:
+                    cut = remaining[:i-1]
+                    remaining = remaining[i-1:]
+                    break
+            if not cut:
+                cut = remaining
+                remaining = ''
+            lines.append(cut)
+        line_h = tip_font.render('测', True, (0,0,0)).get_height()
+        tip_w = min(max_w, max(tip_font.render(l, True, (0,0,0)).get_width() for l in lines) + 12)
+        tip_h = line_h * len(lines) + 12
+        px = min(mouse_pos[0] + 12, self.width - tip_w - 6)
+        py = min(mouse_pos[1] + 12, self.height - tip_h - 6)
+        tip_rect = pygame.Rect(px, py, tip_w, tip_h)
+        pygame.draw.rect(self.screen, (255, 255, 240), tip_rect, border_radius=6)
+        pygame.draw.rect(self.screen, (180, 180, 150), tip_rect, 1, border_radius=6)
+        ty = py + 6
+        for line in lines:
+            self.screen.blit(tip_font.render(line, True, (30,30,30)), (px + 6, ty))
+            ty += line_h
+
+    def _draw_pointer(self, radius):
+        tip_x = self.width//2
+        tip_y = self.height//2 - radius + 40
+        base_w = 16
+        # 指针主体
+        pygame.draw.polygon(self.screen, (255,215,0), [(tip_x, tip_y), (tip_x-base_w, tip_y-28), (tip_x+base_w, tip_y-28)])
+        pygame.draw.polygon(self.screen, (139,69,19), [(tip_x, tip_y), (tip_x-base_w, tip_y-28), (tip_x+base_w, tip_y-28)], 2)
+        pygame.draw.circle(self.screen, (255,215,0), (tip_x, tip_y-40), 13)
+        pygame.draw.circle(self.screen, (139,69,19), (tip_x, tip_y-40), 13, 2)
+
+    def _draw_top_highlight(self, radius):
+        # 顶部扇形高亮
+        highlight = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        cx = self.width//2
+        cy = self.height//2
+        ang_span = math.pi * 2 / 10
+        start = -math.pi/2 - ang_span/2
+        end = -math.pi/2 + ang_span/2
+        points = [(cx, cy)]
+        steps = 24
+        r = radius
+        for s in range(steps+1):
+            a = start + (end - start) * (s / steps)
+            points.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+        pygame.draw.polygon(highlight, (255,255,255,60), points)
+        self.screen.blit(highlight, (0,0))
+
+    def _draw_modal_overlay(self):
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0,0,0,180))
+        self.screen.blit(overlay, (0,0))
+        w = int(self.width * 0.66)
+        h = int(self.height * 0.7)
+        x = (self.width - w)//2
+        y = (self.height - h)//2
+        panel = pygame.Rect(x, y, w, h)
+        pygame.draw.rect(self.screen, (250,250,255), panel, border_radius=12)
+        pygame.draw.rect(self.screen, (150,150,200), panel, 2, border_radius=12)
+        title_map = {'rules': '规则', 'heroes': '英雄', 'settings': '设置', 'test': '测试'}
+        key = self.active_modal if isinstance(self.active_modal, str) else ''
+        title = title_map.get(key, '')
+        self.screen.blit(FONT.render(title, True, (60,60,90)), (x+16, y+10))
+        content_rect = pygame.Rect(x+16, y+50, w-32, h-66)
+        if self.active_modal in ('rules', 'heroes'):
+            self._render_modal_text(content_rect, self._load_modal_text(self.active_modal))
+        elif self.active_modal == 'settings':
+            self._render_settings(content_rect)
+        # TESTMODE
+        elif self.active_modal == 'test':
+            self._draw_test_level2_modal()
+        elif self.active_modal == 'test_level3':
+            self._draw_test_level3_modal(getattr(self, '_l2_key', ''))
+        elif self.active_modal == 'shu_skill':
+            self._render_shu_skill_modal(content_rect)
+
     def _scroll_to_bottom(self):
         """把日志滚动条拉到最底，始终显示最新"""
         log_font = get_chinese_font(18)
@@ -1191,6 +1296,27 @@ class GameUI:
                     self._scroll_to_bottom()
                     return
 
+        # TEST MODE
+        # ---------- 二级菜单点击 ----------
+        for key in ("buy", "skill", "rent"):
+            btn = getattr(self, f'_test_l2_btn_{key}', None)
+            if btn and btn.collidepoint(pos):
+                self.active_modal = "test_level3"
+                self._l2_key = key
+                return
+
+        # ---------- 三级菜单点击 ----------
+        if self.active_modal == "test_level3":
+            l2_key = getattr(self, '_l2_key', '')
+            if l2_key == "buy":
+                for case_id in range(4):
+                    btn = getattr(self, f'_test_l3_btn_{case_id}', None)
+                    if btn and btn.collidepoint(pos):
+                        run_buy_test_case(case_id, self)
+                        self.active_modal = None
+                        return
+            # 后续可用 elif l2_key == "skill"/"rent" 扩展
+
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
 
@@ -1401,103 +1527,6 @@ class GameUI:
             pygame.display.flip()
             self.clock.tick(60)
 
-    def _draw_top_menu(self):
-        """菜单栏绘制"""
-        bar_h = 36
-        pygame.draw.rect(self.screen, (50,50,70), (0, 0, self.width, bar_h))
-        items = [('rules', '规则'), ('heroes', '英雄'), ('settings', '设置')]
-        x = 12
-        self.menu_rects = {}
-        for key, label in items:
-            f = get_chinese_font(20)  # 字体小一号
-            surf = FONT_SMALL.render(label, True, (255,255,255))
-            rect = pygame.Rect(x, 4, surf.get_width()+20, bar_h-8)
-            pygame.draw.rect(self.screen, (80,80,110), rect, border_radius=8)
-            # 居中
-            self.screen.blit(surf, surf.get_rect(center=rect.center))
-            self.menu_rects[key] = rect
-            x += rect.width + 8
-
-    def _draw_tooltip(self, mouse_pos, text, max_w=260):
-        tip_font = get_chinese_font(16)
-        # 逐字换行
-        lines = []
-        remaining = text
-        while remaining:
-            cut = ''
-            for i in range(1, len(remaining)+1):
-                s = tip_font.render(remaining[:i], True, (30,30,30))
-                if s.get_width() > max_w - 12:
-                    cut = remaining[:i-1]
-                    remaining = remaining[i-1:]
-                    break
-            if not cut:
-                cut = remaining
-                remaining = ''
-            lines.append(cut)
-        line_h = tip_font.render('测', True, (0,0,0)).get_height()
-        tip_w = min(max_w, max(tip_font.render(l, True, (0,0,0)).get_width() for l in lines) + 12)
-        tip_h = line_h * len(lines) + 12
-        px = min(mouse_pos[0] + 12, self.width - tip_w - 6)
-        py = min(mouse_pos[1] + 12, self.height - tip_h - 6)
-        tip_rect = pygame.Rect(px, py, tip_w, tip_h)
-        pygame.draw.rect(self.screen, (255, 255, 240), tip_rect, border_radius=6)
-        pygame.draw.rect(self.screen, (180, 180, 150), tip_rect, 1, border_radius=6)
-        ty = py + 6
-        for line in lines:
-            self.screen.blit(tip_font.render(line, True, (30,30,30)), (px + 6, ty))
-            ty += line_h
-
-    def _draw_pointer(self, radius):
-        tip_x = self.width//2
-        tip_y = self.height//2 - radius + 40
-        base_w = 16
-        # 指针主体
-        pygame.draw.polygon(self.screen, (255,215,0), [(tip_x, tip_y), (tip_x-base_w, tip_y-28), (tip_x+base_w, tip_y-28)])
-        pygame.draw.polygon(self.screen, (139,69,19), [(tip_x, tip_y), (tip_x-base_w, tip_y-28), (tip_x+base_w, tip_y-28)], 2)
-        pygame.draw.circle(self.screen, (255,215,0), (tip_x, tip_y-40), 13)
-        pygame.draw.circle(self.screen, (139,69,19), (tip_x, tip_y-40), 13, 2)
-
-    def _draw_top_highlight(self, radius):
-        # 顶部扇形高亮
-        highlight = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        cx = self.width//2
-        cy = self.height//2
-        ang_span = math.pi * 2 / 10
-        start = -math.pi/2 - ang_span/2
-        end = -math.pi/2 + ang_span/2
-        points = [(cx, cy)]
-        steps = 24
-        r = radius
-        for s in range(steps+1):
-            a = start + (end - start) * (s / steps)
-            points.append((cx + r * math.cos(a), cy + r * math.sin(a)))
-        pygame.draw.polygon(highlight, (255,255,255,60), points)
-        self.screen.blit(highlight, (0,0))
-
-    def _draw_modal_overlay(self):
-        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        overlay.fill((0,0,0,180))
-        self.screen.blit(overlay, (0,0))
-        w = int(self.width * 0.66)
-        h = int(self.height * 0.7)
-        x = (self.width - w)//2
-        y = (self.height - h)//2
-        panel = pygame.Rect(x, y, w, h)
-        pygame.draw.rect(self.screen, (250,250,255), panel, border_radius=12)
-        pygame.draw.rect(self.screen, (150,150,200), panel, 2, border_radius=12)
-        title_map = {'rules': '规则', 'heroes': '英雄', 'settings': '设置'}
-        key = self.active_modal if isinstance(self.active_modal, str) else ''
-        title = title_map.get(key, '')
-        self.screen.blit(FONT.render(title, True, (60,60,90)), (x+16, y+10))
-        content_rect = pygame.Rect(x+16, y+50, w-32, h-66)
-        if self.active_modal in ('rules', 'heroes'):
-            self._render_modal_text(content_rect, self._load_modal_text(self.active_modal))
-        elif self.active_modal == 'settings':
-            self._render_settings(content_rect)
-        elif self.active_modal == 'shu_skill':
-            self._render_shu_skill_modal(content_rect)
-
     def _render_modal_text(self, rect, text):
         font = get_chinese_font(18)
         lines = []
@@ -1561,26 +1590,12 @@ class GameUI:
             pygame.draw.rect(self.screen, (220,220,240), btn_rect, border_radius=6)
             self.screen.blit(font.render(text, True, (0,0,0)),
                             (btn_rect.x + 10, btn_rect.y + 2))
-            setattr(self, f'_{prefix}_btn_{idx}', (btn_rect, idx, data_key))
-            y += btn_h + 6
+            setattr(self, f'_{prefix}_btn_{idx}', btn_rect)
 
     def _render_shu_skill_modal(self, base_rect):
         """
         子鼠技能弹窗：较小、居中、只包内容
         """
-        # cur = self.game.players[self.game.current_player_idx]
-        # if self.shu_sub_modal == 'select_target':
-        #     title = "选择目标"
-        #     labels = [fmt_name(p) for p in self.game.players]
-        #     items = labels
-        #     key = 'target'
-        # elif self.shu_sub_modal == 'select_dir':
-        #     title = f"已选 {fmt_name(self.shu_target)}"
-        #     items = ['反向移动', '原地停留']
-        #     key = 'direction'
-        # else:
-        #     return
-        # self._render_generic_modal(title, items, 'shu', key)
         font = get_chinese_font(20)
         pad = 12
         line_h = font.get_linesize()
@@ -1890,6 +1905,119 @@ class GameUI:
             self.draw_info()
             pygame.display.flip()
             self.clock.tick(60)
+
+    ### TEST MODAL ###
+    ### TEST LEVEL-2 MODAL ###
+    def _draw_test_level2_modal(self):
+        """二级菜单：测试中心，3列×10行按钮网格，左对齐，可继续添加"""
+        COLS = 3
+        ROWS = 10
+        BTN_W, BTN_H = 150, 32
+        GAP = 8
+        PAD = 16
+        font = FONT_SMALL
+
+        # 计算整体宽高
+        total_w = COLS * BTN_W + (COLS - 1) * GAP + 2 * PAD
+        total_h = ROWS * BTN_H + (ROWS - 1) * GAP + 2 * PAD + 40  # 40 给标题
+
+        # 居中弹窗
+        rect = pygame.Rect(0, 0, total_w, total_h)
+        rect.center = (self.width // 2, self.height // 2)
+        pygame.draw.rect(self.screen, (250, 250, 255), rect, border_radius=12)
+        pygame.draw.rect(self.screen, (150, 150, 200), rect, 2, border_radius=12)
+
+        # 标题
+        title = font.render("测试中心", True, (40, 40, 40))
+        self.screen.blit(title, title.get_rect(center=(rect.centerx, rect.y + PAD + 10)))
+
+        # 按钮列表（可继续往 list 追加）
+        level2_buttons = [
+            ("地皮购买", "buy"),
+            ("技能测试", "skill"),
+            ("租金测试", "rent"),
+            # ……后续继续加
+        ]
+
+        # 绘制按钮
+        for idx, (label, key) in enumerate(level2_buttons):
+            col = idx % COLS
+            row = idx // COLS
+            x = rect.x + PAD + col * (BTN_W + GAP)
+            y = rect.y + PAD + 40 + row * (BTN_H + GAP)
+            btn_rect = pygame.Rect(x, y, BTN_W, BTN_H)
+            pygame.draw.rect(self.screen, (220, 220, 240), btn_rect, border_radius=6)
+            self.screen.blit(font.render(label, True, (0, 0, 0)),
+                            btn_rect.move(6, 4))
+            setattr(self, f'_test_l2_btn_{key}', btn_rect)
+
+    ### TEST LEVEL-3 MODAL ###
+    def _draw_test_level3_modal(self, l2_key: str):
+        """三级菜单：根据二级按钮 key 动态生成按钮"""
+        COLS = 3
+        BTN_W, BTN_H = 150, 32
+        GAP = 8
+        PAD = 16
+        font = FONT_SMALL
+
+        # 根据二级 key 决定三级按钮
+        if l2_key == "buy":
+            buttons = [
+                ("空地0元-购买", 0),
+                ("空地9999元-资金不足", 1),
+                ("已被占用-失败", 2),
+                ("特殊格子-不可买", 3),
+            ]
+        elif l2_key == "skill":
+            buttons = [("技能1", 10), ("技能2", 11)]  # 示例
+        elif l2_key == "rent":
+            buttons = [("租金1", 20), ("租金2", 21)]  # 示例
+        else:
+            buttons = []
+
+        ROWS = (len(buttons) + COLS - 1) // COLS  # 自动行数
+        total_w = COLS * BTN_W + (COLS - 1) * GAP + 2 * PAD
+        total_h = ROWS * BTN_H + (ROWS - 1) * GAP + 2 * PAD + 40
+
+        rect = pygame.Rect(0, 0, total_w, total_h)
+        rect.center = (self.width // 2, self.height // 2)
+        pygame.draw.rect(self.screen, (250, 250, 255), rect, border_radius=12)
+        pygame.draw.rect(self.screen, (150, 150, 200), rect, 2, border_radius=12)
+
+        title = font.render("测试中心", True, (40, 40, 40))
+        self.screen.blit(title, title.get_rect(center=(rect.centerx, rect.y + PAD + 10)))
+
+        # 绘制按钮
+        for idx, (label, case_id) in enumerate(buttons):
+            col = idx % COLS
+            row = idx // COLS
+            x = rect.x + PAD + col * (BTN_W + GAP)
+            y = rect.y + PAD + 40 + row * (BTN_H + GAP)
+            btn_rect = pygame.Rect(x, y, BTN_W, BTN_H)
+            pygame.draw.rect(self.screen, (220, 220, 240), btn_rect, border_radius=6)
+            self.screen.blit(font.render(label, True, (0, 0, 0)),
+                            btn_rect.move(6, 4))
+            setattr(self, f'_test_l3_btn_{case_id}', btn_rect)
+
+    def _show_test_level3(self, parent_idx):
+        """根据二级按钮索引弹出三级按钮（示例只放 4 个购买用例）"""
+        # 清空旧缓存
+        for i in range(4):
+            setattr(self, f'_test_third_btn_{i}', None)
+
+        items = ["空地0元", "空地9999", "已占用", "特殊格子"]
+        btn_h = 34
+        y0 = self.height // 2 - (len(items) * (btn_h + 10)) // 2
+        for idx, text in enumerate(items):
+            btn_rect = pygame.Rect(0, 0, 160, btn_h)
+            btn_rect.center = (self.width // 2, y0 + idx * (btn_h + 10))
+            pygame.draw.rect(self.screen, (180, 220, 180), btn_rect, border_radius=6)
+            self.screen.blit(FONT_SMALL.render(text, True, (30, 30, 30)),
+                            btn_rect.move(8, 6))
+            setattr(self, f'_test_third_btn_{idx}', btn_rect)
+
+    def _run_buy_test_case(self, case_id: int):
+        run_buy_test_case(case_id, self)
 
 if __name__ == '__main__':
     count, zodiacs = choose_players_ui()
