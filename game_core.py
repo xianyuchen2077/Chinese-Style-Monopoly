@@ -704,8 +704,10 @@ class Game:
         pass  # UI层处理
 
     def after_trigger(self, player):
-        # 3. 触发惩罚、奇遇、被动技能
+        # 触发惩罚、奇遇、被动技能
         self.trigger_event(player)
+        # 检查并支付租金
+        self.pay_rent(player)
 
     def turn_end(self, player):
         # 4. 是否购房、加盖
@@ -1034,3 +1036,88 @@ class Game:
 
         self.log.append(f'{fmt_name(player)} 升级了「{tile.name}」至等级{tile.level.value}。')
         return True
+
+    def calculate_rent(self, tile: Tile, player: Player) -> int:
+        """
+        计算指定地皮的租金
+        :param tile: 地皮对象
+        :param player: 停留的玩家（用于判断五行相克等效果）
+        :return: 租金金额
+        """
+        if tile.owner is None or tile.owner == player:
+            return 0  # 无主或自己领地无需支付
+
+        base_price = tile.price
+        owner = tile.owner
+
+        # 基础租金倍数
+        rent_multipliers = {
+            BuildingLevel.EMPTY: 0.25,
+            BuildingLevel.HUT: 0.5,
+            BuildingLevel.TILE: 1.0,
+            BuildingLevel.INN: 1.5,
+            BuildingLevel.PALACE: 3.0,
+        }
+        base_rent = int(base_price * rent_multipliers[tile.level])
+
+        # 五行属性系数（默认水属性为基准）
+        element_effects = {
+            Element.GOLD: {'rent': 1.5, 'palace_bonus': 1.2},
+            Element.WOOD: {'rent': 0.8, 'upgrade_discount': 0.7},
+            Element.WATER: {'rent': 1.0, 'pass_bonus': 1000},
+            Element.FIRE: {'rent': 1.8, 'fire_chance': 0.1, 'palace_bonus': 2.0, 'palace_fire': 0.2},
+            Element.EARTH: {'rent': 1.2, 'destruct_resist': 2.0, 'palace_immune': True},
+        }
+
+        # 获取地皮五行属性
+        element = tile.element or Element.WATER  # 默认水属性
+        effects = element_effects[element]
+
+        # 计算最终租金
+        rent = int(base_rent * effects['rent'])
+
+        # 宫殿额外加成
+        if tile.level == BuildingLevel.PALACE:
+            if element == Element.GOLD:
+                rent = int(rent * effects['palace_bonus'])
+            elif element == Element.FIRE:
+                rent = int(rent * effects['palace_bonus'])
+
+        # 检查玩家是否有业障（牛的技能）
+        if 'karma' in player.status and player.status['karma'] > 0:
+            rent = int(rent * 1.5)  # 业障状态下租金+50%
+
+        return max(0, rent)  # 确保租金非负
+
+    def pay_rent(self, player: Player):
+        """处理玩家停留时的租金支付"""
+        tile = self.current_tile(player)
+        rent = self.calculate_rent(tile, player)
+
+        # 火属性火灾触发
+        if tile.element == Element.FIRE:
+            fire_chance = 0.2 if tile.level == BuildingLevel.PALACE else 0.1
+            if random.random() < fire_chance:
+                if tile.level.value > 0:
+                    old_level = tile.level
+                    tile.level = BuildingLevel(tile.level.value - 1)
+                    self.log.append(
+                        f"【火灾】{fmt_name(tile.owner)} 的「{tile.name}」"
+                        f"从 {old_level.name} 降为 {tile.level.name}"
+                    )
+                return  # 火灾后跳过租金支付
+
+        if rent > 0:
+            owner = tile.owner
+            if player.money >= rent:
+                player.money -= rent
+                owner.money += rent
+                self.log.append(
+                    f"{fmt_name(player)} 停留在 {fmt_name(owner)} 的「{tile.name}」"
+                    f"（{tile.element.value} - {tile.level.name}），支付 {rent} 金币租金"
+                )
+            else:
+                # 资金不足时的处理（可扩展破产逻辑）
+                self.log.append(
+                    f"{fmt_name(player)} 资金不足，无法支付 {rent} 金币租金给 {fmt_name(owner)}"
+                )
