@@ -4,7 +4,7 @@
 import pygame
 import sys
 from game_core import Game, Element, BuildingLevel, Player, EARTHLY_NAMES, SkillLevel
-from game_test import run_buy_test_case
+from game_test import run_buy_test_case, run_upgrade_test_case
 import os
 import math
 
@@ -1030,7 +1030,7 @@ class GameUI:
         elif self.active_modal == 'test':
             self._draw_test_level2_modal()
         elif self.active_modal == 'test_level3':
-            self._draw_test_level3_modal(getattr(self, '_l2_key', ''))
+            self._draw_test_level3_modal(self.test_l2_key or '')
         elif self.active_modal == 'shu_skill':
             self._render_shu_skill_modal(content_rect)
 
@@ -1313,27 +1313,6 @@ class GameUI:
                     self.hu_merge_player = None
                     self._scroll_to_bottom()
                     return
-
-        # TEST MODE
-        # ---------- 二级菜单点击 ----------
-        for key in ("buy", "skill", "rent"):
-            btn = getattr(self, f'_test_l2_btn_{key}', None)
-            if btn and btn.collidepoint(pos):
-                self.active_modal = "test_level3"
-                self._l2_key = key
-                return
-
-        # ---------- 三级菜单点击 ----------
-        if self.active_modal == "test_level3":
-            l2_key = getattr(self, '_l2_key', '')
-            if l2_key == "buy":
-                for case_id in range(4):
-                    btn = getattr(self, f'_test_l3_btn_{case_id}', None)
-                    if btn and btn.collidepoint(pos):
-                        run_buy_test_case(case_id, self)
-                        self.active_modal = None
-                        return
-            # 后续可用 elif l2_key == "skill"/"rent" 扩展
 
     def spin_wheel(self):
         player = self.game.players[self.game.current_player_idx]
@@ -1857,7 +1836,7 @@ class GameUI:
 
         # TEST MODE
         # ---------- 二级菜单点击 ----------
-        for key in ("buy", "skill", "rent"):
+        for key in ("buy", "upgrade", "skill", "rent"):
             btn = getattr(self, f'_test_l2_btn_{key}', None)
             if btn and btn.collidepoint(pos):
                 self.test_l2_key = key
@@ -1865,13 +1844,22 @@ class GameUI:
                 return True
 
         # ---------- 三级菜单点击 ----------
-        if self.active_modal == 'test_level3' and self.test_l2_key == "buy":
-            for case_id in range(1, 5):
-                btn = getattr(self, f'_test_l3_btn_{case_id}', None)
-                if btn and btn.collidepoint(pos):
-                    run_buy_test_case(case_id, self)
-                    self.active_modal = None
-                    return True
+        if self.active_modal == "test_level3":
+            l2_key = getattr(self, 'test_l2_key', '')
+            if l2_key == "buy":
+                for case_id in range(1, 5):  # 1~4
+                    btn = getattr(self, f'_test_l3_btn_{case_id}', None)
+                    if btn and btn.collidepoint(pos):
+                        run_buy_test_case(case_id, self)
+                        self.active_modal = None
+                        return True
+            elif l2_key == "upgrade":
+                for case_id in range(1, 5):
+                    btn = getattr(self, f'_test_l3_btn_{case_id}', None)
+                    if btn and btn.collidepoint(pos):
+                        run_upgrade_test_case(case_id, self)
+                        self.active_modal = None
+                        return True
             # 以后 skill / rent 再扩展
 
     def _load_modal_text(self, kind):
@@ -1976,6 +1964,7 @@ class GameUI:
         # 3) 按钮布局：固定 3 列，按钮大小自适应
         COLS = 3
         BUTTONS = [("地皮购买", "buy"),
+                ("地皮加盖", "upgrade"),
                 ("技能测试", "skill"),
                 ("租金测试", "rent")]
         ROWS = (len(BUTTONS) + COLS - 1) // COLS
@@ -2014,17 +2003,34 @@ class GameUI:
         f_title = get_chinese_font(28)
         try: f_title.set_bold(True)
         except: pass
-        title = f"{ {'buy':'地皮购买','skill':'技能测试','rent':'租金测试'}.get(l2_key,'')} 用例"
+
+        # 修改标题映射，添加 upgrade
+        title_map = {
+            'buy': '地皮购买',
+            'upgrade': '地皮加盖',
+            'skill': '技能测试',
+            'rent': '租金测试'
+        }
+        title = f"{title_map.get(l2_key, '')} 用例"
         self.screen.blit(f_title.render(title,True,(40,40,40)),
                         f_title.render(title,True,(40,40,40)).get_rect(centerx=panel.centerx,top=y+18))
 
-        # 4 个按钮 2×2
-        BUTTONS = [
-            ("空地可买",          1, 1),
-            ("空地钱不够",        2, 2),
-            ("已被别人占据",      3, 3),
-            ("特殊格子不能买",    6, 4),
-        ]
+        # 根据 l2_key 选择不同的按钮
+        if l2_key == "buy":
+            BUTTONS = [
+                ("空地可买", 1, 1),
+                ("空地钱不够", 2, 2),
+                ("已被别人占据", 3, 3),
+                ("特殊格子不能买", 6, 4),
+            ]
+        elif l2_key == "upgrade":
+            BUTTONS = [
+                ("不是自己的地皮不能加盖", 1, 1),
+                ("正常加盖（一回合一次）", 2, 2),
+                ("余额不足不能加盖", 3, 3),
+                ("奇遇摧毁满级地皮", 4, 4),
+            ]
+
         COLS = 2
         ROWS = 2
         PAD = 25
@@ -2045,8 +2051,8 @@ class GameUI:
             txt = f_btn.render(label,True,(0,0,0))
             self.screen.blit(txt, txt.get_rect(center=btn_rect.center))
 
-            # 用独立名字缓存，防止重名
-            setattr(self,f'_test_l3_btn_{case_id}',btn_rect)
+            # 统一命名
+            setattr(self, f'_test_l3_btn_{case_id}', btn_rect)
 
     def _show_test_level3(self, parent_idx):
         """根据二级按钮索引弹出三级按钮（示例只放 4 个购买用例）"""
