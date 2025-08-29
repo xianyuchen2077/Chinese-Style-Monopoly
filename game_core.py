@@ -696,6 +696,12 @@ class Game:
         self.log = []
         self.tiger_sub_turns = []  # [(player, "main"), (player, "clone")] 或空
 
+        # TEST MODE
+        self.test_mode = False   # 默认关闭
+        self.test_dice = 0       # 测试模式下的固定骰点
+        self._test_l2_key: Optional[str] = None  # 测试模式下的二级菜单键，可为 str 或 None
+        self._test_l3_case: Optional[int] = None # 测试模式下的三级用例编号，可为 int、str 或 None
+
     def turn_start(self, player):
         # 1. 选择是否发动技能或特殊机遇
         pass  # UI层处理
@@ -777,12 +783,20 @@ class Game:
         1. 若处于寅虎分身子回合，仅消耗当前子回合；
         2. 否则进入正常轮换。
         """
-        for p in self.players:
-            if p.zodiac == '虎':
-                sk = p.skill_mgr.skills['虎']
-                if sk['split_turns'] > 0 and not self.tiger_sub_turns:
-                    # 本轮尚未生成，补齐全套：【阳】【阴】
-                    self.tiger_sub_turns = [(p, "main"), (p, "clone")]
+        # TEST MODE
+        if getattr(self, 'test_mode', False):
+            test_l2_key  = getattr(self, '_test_l2_key',  None)
+            test_l3_case = getattr(self, '_test_l3_case', None)
+            if test_l2_key == 'upgrade' and test_l3_case == 4:
+                player = self.players[self.current_player_idx]
+                self._run_earthquake_test(player)
+
+            for p in self.players:
+                if p.zodiac == '虎':
+                    sk = p.skill_mgr.skills['虎']
+                    if sk['split_turns'] > 0 and not self.tiger_sub_turns:
+                        # 本轮尚未生成，补齐全套：【阳】【阴】
+                        self.tiger_sub_turns = [(p, "main"), (p, "clone")]
 
         # 1. 寅虎分身子回合
         if self.tiger_sub_turns:
@@ -937,7 +951,7 @@ class Game:
             player.status['skip_turns'] = max(player.status.get('skip_turns', 0), 1)
             return
         if tile.special == 'encounter':
-            # 五行奇遇（简化版，从 rules.md 中摘取部分）
+            # 五行奇遇
             e = tile.element
             if e == Element.GOLD:
                 player.money += 3000
@@ -1011,7 +1025,7 @@ class Game:
         if not self._is_property_tile(tile):
             return False, "特殊地区不可升级"
         elif tile.owner != player:
-            return False, "他人财产不可升级"
+            return False, "公共/他人财产不可升级"
         elif tile.level == BuildingLevel.PALACE:
             return False, "已是最高等级"
         if player.status.get('just_bought'):
@@ -1130,3 +1144,10 @@ class Game:
                 self.log.append(
                     f"{fmt_name(player)} 资金不足，无法支付 {rent} 金币租金给 {fmt_name(owner)}"
                 )
+
+    #TEST MODE
+    def _run_earthquake_test(self, player):
+        """测试模式专用：回合末触发地震"""
+        tile = self.board.tiles[player.position]
+        from game_test import trigger_test_encounter
+        trigger_test_encounter(self, player, tile)

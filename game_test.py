@@ -83,6 +83,7 @@ def run_buy_test_case(case_id: int, ui_instance):
 
     # 4) 把新游戏挂到 UI
     ui_instance.game = game
+    ui_instance.game.test_mode = True
     ui_instance.player_sprites = ui_instance._load_player_sprites()
 
     # 5) 日志提示
@@ -93,145 +94,112 @@ def run_buy_test_case(case_id: int, ui_instance):
 
 def run_upgrade_test_case(case_id: int, ui_instance):
     """
-    场景测试：case_id 1~4
-    1. 不是自己的地皮不能加盖
-    2. 正常加盖（一回合一次，走到地皮→购买→每回合停留加盖）
-    3. 余额不足不能加盖
-    4. 地皮遭到破坏（触发奇遇）
+    场景测试：case_id 1~4，全部通过“转动轮盘”触发
+    1 他人地皮（骰点=1，走到1号位）
+    2 正常加盖（骰点=0，每回合原地加盖）
+    3 余额不足（骰点=3，走到3号位）
+    4 地皮遭破坏（骰点=4，走到4号位后触发地震奇遇）
     """
     # 清空旧日志
     ui_instance.log.clear()
 
-    if case_id == 1:
-        # —— 1. 不是自己的地皮不能加盖 ——
-        game = Game(["测试玩家", "占位玩家"], ["鼠", "牛"])
-        player = game.players[0]
-        player.money = 10000
-        player.position = 0
+    # 公共准备
+    game = Game(["测试玩家"], ["鼠"])
+    player = game.players[0]
+    player.game = game
+    player.position = 0        # 统一从起点出发
 
+    if case_id == 1:
+        # —— 场景1：他人地皮 ——
         idx = 1
         tile = game.board.tiles[idx]
         tile.price = 3000
-        tile.owner = game.players[1]  # 属于占位玩家
+        tile.owner = Player("占位玩家", "牛", is_ai=True)
         tile.special = None
-        tile.owner.properties.append(idx)
         tile.level = BuildingLevel.HUT
+        tile.owner.properties.append(idx)
 
         ui_instance.test_mode = True
-        ui_instance.test_dice = 1
+        ui_instance.test_dice = 1          # 一步走到1号
         ui_instance.game = game
+        ui_instance.game.test_mode = True
         ui_instance.player_sprites = ui_instance._load_player_sprites()
 
-        ui_instance.log.append("=== 地皮加盖测试场景 1：不是自己的地皮 ===")
-        ui_instance.log.append("期望：提示“他人财产不可升级”")
-        ui_instance._scroll_to_bottom()
-
-        # 模拟走到该地皮
-        game.move_player(player, 1)
-        # 尝试加盖（UI 手动点击“加盖”按钮即可触发）
-        while game.log:
-            ui_instance.log.append(game.log.pop(0))
+        ui_instance.log.append("=== 场景测试 1：不是自己的地皮 ===")
+        ui_instance.log.append("期望：提示“公共/他人财产不可升级”")
         ui_instance._scroll_to_bottom()
 
     elif case_id == 2:
-        # —— 2. 正常加盖（一回合一次）——
-        game = Game(["测试玩家"], ["鼠"])
-        player = game.players[0]
-        player.money = 999999
-        player.position = 0
-
+        # —— 场景2：原地加盖 ——
         idx = 2
         tile = game.board.tiles[idx]
         tile.price = 2000
-        tile.owner = None
+        tile.owner = player
         tile.special = None
+        player.properties.append(idx)
+        tile.level = BuildingLevel.EMPTY   # 初始空地
+        player.position = 2
 
         ui_instance.test_mode = True
-        ui_instance.test_dice = 2
+        ui_instance.test_dice = 0          # 每次轮盘=0，不动
         ui_instance.game = game
+        ui_instance.game.test_mode = True
         ui_instance.player_sprites = ui_instance._load_player_sprites()
 
-        ui_instance.log.append("=== 地皮加盖测试场景 2：正常加盖 ===")
-        ui_instance.log.append("第一次移动到2号地皮并购买，后续每回合停留并加盖一次")
+        ui_instance.log.append("=== 场景测试 2：原地加盖 ===")
+        ui_instance.log.append("骰点=0，每回合结束即可加盖一次")
         ui_instance._scroll_to_bottom()
-
-        # 第一次移动并自动购买
-        game.move_player(player, 2)
-        game.buy_property(player)
-
-        # 同步日志
-        while game.log:
-            ui_instance.log.append(game.log.pop(0))
-        ui_instance._scroll_to_bottom()
-
-        # 后续回合：玩家每次点击“加盖”即可加盖一次
-        # UI 层负责回合结束按钮，无需额外代码
 
     elif case_id == 3:
-        # —— 3. 余额不足不能加盖 ——
-        game = Game(["测试玩家"], ["鼠"])
-        player = game.players[0]
-        player.money = 0  # 余额不足
-        player.position = 0
-
+        # —— 场景3：余额不足 ——
         idx = 3
         tile = game.board.tiles[idx]
         tile.price = 4000
-        tile.owner = player  # 属于测试玩家
+        tile.owner = player
         tile.special = None
         player.properties.append(idx)
-        tile.level = BuildingLevel.HUT  # 初始为茅屋
+        tile.level = BuildingLevel.HUT
+        player.money = 0                   # 余额不足
 
         ui_instance.test_mode = True
-        ui_instance.test_dice = 3
+        ui_instance.test_dice = 3          # 走到3号
         ui_instance.game = game
+        ui_instance.game.test_mode = True
         ui_instance.player_sprites = ui_instance._load_player_sprites()
 
-        ui_instance.log.append("=== 地皮加盖测试场景 3：余额不足 ===")
+        ui_instance.log.append("=== 场景测试 3：余额不足 ===")
         ui_instance.log.append("期望：提示“资金不足，不可加盖”")
         ui_instance._scroll_to_bottom()
 
-        # 移动到地皮
-        game.move_player(player, 3)
-        # 玩家手动点击“加盖”按钮即可看到提示
-        while game.log:
-            ui_instance.log.append(game.log.pop(0))
-        ui_instance._scroll_to_bottom()
-
     elif case_id == 4:
-        # —— 4. 地皮遭到破坏（触发奇遇）——
-        game = Game(["测试玩家"], ["鼠"])
-        player = game.players[0]
-        player.money = 10000
-        player.position = 0
-
+        # —— 场景4：地皮遭受破坏 ——
         idx = 4
         tile = game.board.tiles[idx]
         tile.price = 5000
         tile.owner = player
         tile.special = None
         player.properties.append(idx)
-        tile.level = BuildingLevel.PALACE  # 初始为宫殿
-        tile.element = Element.WATER  # 水属性，触发洪水
+        tile.level = BuildingLevel.PALACE    # 初始最高级
+        tile.element = Element.EARTH         # 触发“地震”
 
         ui_instance.test_mode = True
-        ui_instance.test_dice = 4
+        ui_instance.test_dice = 4            # 走到4号
         ui_instance.game = game
+        ui_instance.game.test_mode = True
         ui_instance.player_sprites = ui_instance._load_player_sprites()
 
-        ui_instance.log.append("=== 地皮加盖测试场景 4：地皮遭到破坏 ===")
-        ui_instance.log.append("期望：触发水属性奇遇，宫殿降级为瓦房")
+        ui_instance.log.append("=== 场景测试 4：地皮遭到破坏 ===")
+        ui_instance.log.append("期望：触发地震奇遇，宫殿被摧毁至空地")
         ui_instance._scroll_to_bottom()
-
-        # 移动到地皮并触发奇遇
-        game.move_player(player, 4)
-        trigger_test_encounter(game, player, tile)
-
-        # 同步日志
-        while game.log:
-            ui_instance.log.append(game.log.pop(0))
-        ui_instance._scroll_to_bottom()
+        # 把测试用例信息写回 Game，供 next_turn() 判断
+        game._test_l2_key  = 'upgrade'
+        game._test_l3_case = 4
 
     else:
         ui_instance.log.append("测试场景不存在")
         ui_instance._scroll_to_bottom()
+
+    # 统一把底层日志同步到 UI
+    while game.log:
+        ui_instance.log.append(game.log.pop(0))
+    ui_instance._scroll_to_bottom()

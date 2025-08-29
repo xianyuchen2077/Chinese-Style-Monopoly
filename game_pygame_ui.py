@@ -1836,12 +1836,13 @@ class GameUI:
 
         # TEST MODE
         # ---------- 二级菜单点击 ----------
-        for key in ("buy", "upgrade", "skill", "rent"):
-            btn = getattr(self, f'_test_l2_btn_{key}', None)
-            if btn and btn.collidepoint(pos):
-                self.test_l2_key = key
-                self.active_modal = "test_level3"   # 进入三级菜单
-                return True
+        if self.active_modal == "test":
+            for key in ("buy", "upgrade", "skill", "rent"):
+                btn = getattr(self, f'_test_l2_btn_{key}', None)
+                if btn and btn.collidepoint(pos):
+                    self.test_l2_key = key
+                    self.active_modal = "test_level3"   # 进入三级菜单
+                    return True
 
         # ---------- 三级菜单点击 ----------
         if self.active_modal == "test_level3":
@@ -2025,10 +2026,10 @@ class GameUI:
             ]
         elif l2_key == "upgrade":
             BUTTONS = [
-                ("不是自己的地皮不能加盖", 1, 1),
-                ("正常加盖（一回合一次）", 2, 2),
-                ("余额不足不能加盖", 3, 3),
-                ("奇遇摧毁满级地皮", 4, 4),
+                ("他人地皮", 1, 1),
+                ("正常逐级加盖", 2, 2),
+                ("加盖条件不足", 3, 3),
+                ("地皮遭受破坏", 4, 4),
             ]
 
         COLS = 2
@@ -2070,9 +2071,6 @@ class GameUI:
             self.screen.blit(FONT_SMALL.render(text, True, (30, 30, 30)),
                             btn_rect.move(8, 6))
             setattr(self, f'_test_third_btn_{idx}', btn_rect)
-
-    def _run_buy_test_case(self, case_id: int):
-        run_buy_test_case(case_id, self)
 
 if __name__ == '__main__':
     count, zodiacs = choose_players_ui()
