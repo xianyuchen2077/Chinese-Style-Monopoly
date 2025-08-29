@@ -619,7 +619,6 @@ class GameUI:
                     self.hovered_tile = idx
                     break   # 找到一块即可
 
-
     def draw_info(self):
         # Info area background
         info_x = GRID_SIZE * CELL_SIZE + self.margin * 2
