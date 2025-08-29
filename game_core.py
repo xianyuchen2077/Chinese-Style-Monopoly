@@ -565,6 +565,7 @@ class Player:
         self.skill_mgr = SkillManager(self)
         self.clockwise = True          # True=顺时针, False=逆时针
         self.can_move = True           # False 表示本轮不能转盘
+        self.last_upgrade_turn = -1   # 记录最近一次加盖的回合
         self.game: Optional["Game"] = None
         self.clone_idx: Optional[int] = None   # 分身棋子的格子序号
 
@@ -1007,9 +1008,11 @@ class Game:
         返回 (是否可升级, 原因)
         """
         tile = self.current_tile(player)
-        if not self._is_property_tile(tile) or tile.owner != player:
-            return False, "此处不可升级"
-        if tile.level == BuildingLevel.PALACE:
+        if not self._is_property_tile(tile):
+            return False, "特殊地区不可升级"
+        elif tile.owner != player:
+            return False, "他人财产不可升级"
+        elif tile.level == BuildingLevel.PALACE:
             return False, "已是最高等级"
         if player.status.get('just_bought'):
             return False, "刚购买本地皮，不能立即加盖"
@@ -1030,9 +1033,15 @@ class Game:
             self.log.append(msg)
             return False
 
+        # 本回合已加盖过
+        if player.last_upgrade_turn == self.turn:
+            self.log.append(f"{fmt_name(player)} 本回合已加盖过建筑，无法再次加盖")
+            return False
+
         cost = self.upgrade_cost(tile)
         player.money -= cost
         tile.level = BuildingLevel(tile.level.value + 1)
+        player.last_upgrade_turn = self.turn    # 记录加盖回合
 
         self.log.append(f'{fmt_name(player)} 升级了「{tile.name}」至等级{tile.level.value}。')
         return True

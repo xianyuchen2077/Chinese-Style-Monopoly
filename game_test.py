@@ -47,6 +47,10 @@ def run_buy_test_case(case_id: int, ui_instance):
         – 打开 TEST MODE
         – 固定骰点 = 到达目标格所需步数
     """
+
+    # 清空旧日志
+    ui_instance.log.clear()
+
     # 场景表：(目标格子, 价格, 主人, 特殊, 玩家金币, 所需骰点, 期望关键字)
     scenes = [
         None,   # 占位，让索引从1开始
@@ -91,102 +95,143 @@ def run_upgrade_test_case(case_id: int, ui_instance):
     """
     场景测试：case_id 1~4
     1. 不是自己的地皮不能加盖
-    2. 正常加盖（一级一级地加盖，一回合一次）
+    2. 正常加盖（一回合一次，走到地皮→购买→每回合停留加盖）
     3. 余额不足不能加盖
-    4. 奇遇摧毁满级地皮
+    4. 地皮遭到破坏（触发奇遇）
     """
-    # 定义场景
-    scenes = [
-        None,  # 占位，让索引从1开始
-        # case_id 1: 不是自己的地皮不能加盖
-        {
-            "player_idx": 1,
-            "money": 10000,
-            "tile_idx": 1,
-            "tile_price": 3000,
-            "tile_owner": Player("占位玩家", "牛", is_ai=True),
-            "tile_special": None,
-            "test_dice": 1,
-            "expect": "该地皮已有主人"
-        },
-        # case_id 2: 正常加盖（一回合一次）
-        {
-            "player_idx": 2,
-            "money": 999999,
-            "tile_idx": 2,
-            "tile_price": 2000,
-            "tile_owner": None,
-            "tile_special": None,
-            "test_dice": 2,
-            "expect": "依次正常加盖，建筑从空地→茅屋→瓦房→客栈→宫殿"
-        },
-        # case_id 3: 余额不足不能加盖
-        {
-            "player_idx": 3,
-            "money": 0,
-            "tile_idx": 3,
-            "tile_price": 4000,
-            "tile_owner": None,
-            "tile_special": None,
-            "test_dice": 3,
-            "expect": "资金不足，不可加盖"
-        },
-        # case_id 4: 奇遇摧毁满级地皮
-        {
-            "player_idx": 4,
-            "money": 10000,
-            "tile_idx": 4,
-            "tile_price": 5000,
-            "tile_owner": None,  # 属于玩家自己，初始化时填充
-            "tile_special": None,
-            "test_dice": 4,
-            "expect": "触发奇遇后，建筑从宫殿→瓦房"
-        },
-    ]
-    scene = scenes[case_id]
-    if not scene:
-        ui_instance.log.append("测试场景不存在")
-        return
+    # 清空旧日志
+    ui_instance.log.clear()
 
-    # 初始化游戏
     if case_id == 1:
-        game = Game(["玩家一", "占位玩家"], ["鼠", "牛"])
+        # —— 1. 不是自己的地皮不能加盖 ——
+        game = Game(["测试玩家", "占位玩家"], ["鼠", "牛"])
         player = game.players[0]
-    else:
+        player.money = 10000
+        player.position = 0
+
+        idx = 1
+        tile = game.board.tiles[idx]
+        tile.price = 3000
+        tile.owner = game.players[1]  # 属于占位玩家
+        tile.special = None
+        tile.owner.properties.append(idx)
+        tile.level = BuildingLevel.HUT
+
+        ui_instance.test_mode = True
+        ui_instance.test_dice = 1
+        ui_instance.game = game
+        ui_instance.player_sprites = ui_instance._load_player_sprites()
+
+        ui_instance.log.append("=== 地皮加盖测试场景 1：不是自己的地皮 ===")
+        ui_instance.log.append("期望：提示“他人财产不可升级”")
+        ui_instance._scroll_to_bottom()
+
+        # 模拟走到该地皮
+        game.move_player(player, 1)
+        # 尝试加盖（UI 手动点击“加盖”按钮即可触发）
+        while game.log:
+            ui_instance.log.append(game.log.pop(0))
+        ui_instance._scroll_to_bottom()
+
+    elif case_id == 2:
+        # —— 2. 正常加盖（一回合一次）——
         game = Game(["测试玩家"], ["鼠"])
         player = game.players[0]
-    player.money = scene["money"]
-    player.position = 0
+        player.money = 999999
+        player.position = 0
 
-    # 布场：设置地皮状态
-    idx = scene["tile_idx"]
-    tile = game.board.tiles[idx]
-    tile.price = scene["tile_price"]
-    tile.owner = scene["tile_owner"] if case_id != 4 else player  # case4时属于测试玩家
-    tile.special = scene["tile_special"]
-    if tile.owner:
-        tile.owner.properties.append(idx)
-        tile.level = (
-            BuildingLevel.PALACE if case_id == 4 else BuildingLevel.HUT
-        )  # case4是满级宫殿
+        idx = 2
+        tile = game.board.tiles[idx]
+        tile.price = 2000
+        tile.owner = None
+        tile.special = None
 
-    # 开启测试模式：固定骰点，确保玩家准确走到目标格
-    ui_instance.test_mode = True
-    ui_instance.game.test_mode = True
-    ui_instance.test_dice = scene["test_dice"]
-    ui_instance.game = game
-    ui_instance.player_sprites = ui_instance._load_player_sprites()
+        ui_instance.test_mode = True
+        ui_instance.test_dice = 2
+        ui_instance.game = game
+        ui_instance.player_sprites = ui_instance._load_player_sprites()
 
-    # 日志记录测试情景
-    ui_instance.log.append("=== 地皮加盖测试场景 {} ===".format(case_id))
-    ui_instance.log.append(scene["expect"])
-    ui_instance.log.append("测试中：目标格 {}, 骰点固定为 {}".format(idx, scene["test_dice"]))
-    ui_instance._scroll_to_bottom()
+        ui_instance.log.append("=== 地皮加盖测试场景 2：正常加盖 ===")
+        ui_instance.log.append("第一次移动到2号地皮并购买，后续每回合停留并加盖一次")
+        ui_instance._scroll_to_bottom()
 
-    # 特殊处理 case4：模拟奇遇摧毁逻辑
-    if case_id == 4:
-        # 强制触发毁灭性奇遇（以水属性为例）
-        tile.element = Element.WATER
-        game.trigger_event(player)
-        ui_instance.log.append("模拟触发【洪水】奇遇，宫殿降级")
+        # 第一次移动并自动购买
+        game.move_player(player, 2)
+        game.buy_property(player)
+
+        # 同步日志
+        while game.log:
+            ui_instance.log.append(game.log.pop(0))
+        ui_instance._scroll_to_bottom()
+
+        # 后续回合：玩家每次点击“加盖”即可加盖一次
+        # UI 层负责回合结束按钮，无需额外代码
+
+    elif case_id == 3:
+        # —— 3. 余额不足不能加盖 ——
+        game = Game(["测试玩家"], ["鼠"])
+        player = game.players[0]
+        player.money = 0  # 余额不足
+        player.position = 0
+
+        idx = 3
+        tile = game.board.tiles[idx]
+        tile.price = 4000
+        tile.owner = player  # 属于测试玩家
+        tile.special = None
+        player.properties.append(idx)
+        tile.level = BuildingLevel.HUT  # 初始为茅屋
+
+        ui_instance.test_mode = True
+        ui_instance.test_dice = 3
+        ui_instance.game = game
+        ui_instance.player_sprites = ui_instance._load_player_sprites()
+
+        ui_instance.log.append("=== 地皮加盖测试场景 3：余额不足 ===")
+        ui_instance.log.append("期望：提示“资金不足，不可加盖”")
+        ui_instance._scroll_to_bottom()
+
+        # 移动到地皮
+        game.move_player(player, 3)
+        # 玩家手动点击“加盖”按钮即可看到提示
+        while game.log:
+            ui_instance.log.append(game.log.pop(0))
+        ui_instance._scroll_to_bottom()
+
+    elif case_id == 4:
+        # —— 4. 地皮遭到破坏（触发奇遇）——
+        game = Game(["测试玩家"], ["鼠"])
+        player = game.players[0]
+        player.money = 10000
+        player.position = 0
+
+        idx = 4
+        tile = game.board.tiles[idx]
+        tile.price = 5000
+        tile.owner = player
+        tile.special = None
+        player.properties.append(idx)
+        tile.level = BuildingLevel.PALACE  # 初始为宫殿
+        tile.element = Element.WATER  # 水属性，触发洪水
+
+        ui_instance.test_mode = True
+        ui_instance.test_dice = 4
+        ui_instance.game = game
+        ui_instance.player_sprites = ui_instance._load_player_sprites()
+
+        ui_instance.log.append("=== 地皮加盖测试场景 4：地皮遭到破坏 ===")
+        ui_instance.log.append("期望：触发水属性奇遇，宫殿降级为瓦房")
+        ui_instance._scroll_to_bottom()
+
+        # 移动到地皮并触发奇遇
+        game.move_player(player, 4)
+        trigger_test_encounter(game, player, tile)
+
+        # 同步日志
+        while game.log:
+            ui_instance.log.append(game.log.pop(0))
+        ui_instance._scroll_to_bottom()
+
+    else:
+        ui_instance.log.append("测试场景不存在")
         ui_instance._scroll_to_bottom()
