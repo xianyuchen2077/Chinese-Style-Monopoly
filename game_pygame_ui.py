@@ -196,7 +196,12 @@ def fmt_name(player, tag: str = "") -> str:
 class GameUI:
     def __init__(self):
         ### TEST MODE ###
-        TEST_MODE = False          # 全局开关，True 时才会渲染测试按钮
+        self.test_mode = False   # 是否处于测试模式
+        self.test_dice = 0       # 测试模式下的固定骰点
+        self.test_l2_key = None   # 当前二级按钮 key
+        self.test_l3_key = None   # 当前三级按钮 key（用例 id）
+        self.TEST_MODAL_W = 600  # 统一测试的窗口大小
+        self.TEST_MODAL_H = 480
 
         # 动态压缩边距/信息区宽度以适配屏幕，不改变格子大小
         display_info = pygame.display.Info()
@@ -815,12 +820,25 @@ class GameUI:
 
         log_font = get_chinese_font(18)
         line_h = log_font.get_linesize()
-
+        max_w = log_rect.width - 16          # 留边距
+        lines = []
+        for raw in self.log:
+            # 按宽度拆行
+            remain = raw
+            while remain:
+                for i in range(len(remain), 0, -1):
+                    if log_font.render(remain[:i], True, (80, 80, 80)).get_width() <= max_w:
+                        lines.append(remain[:i])
+                        remain = remain[i:]
+                        break
+                else:       # 太长单词，强制拆
+                    lines.append(remain[:1])
+                    remain = remain[1:]
         # 计算可显示行数
         visible_lines = log_rect.height // line_h
         total_lines = len(self.log)
         # 限制滚动范围
-        self.log_scroll = max(0, min(self.log_scroll, total_lines - visible_lines))
+        self.log_scroll = max(0, min(self.log_scroll, len(lines) - visible_lines))
 
         # 绘制可见日志
         y = log_rect.y + 4
@@ -1322,6 +1340,12 @@ class GameUI:
 
         dice_result = self.game.spin_wheel()
 
+        # TEST MODE
+        if getattr(self, 'test_mode', False) and hasattr(self, 'test_dice'):
+            dice_result = self.test_dice        # 固定点数
+            self.log.append(f'[TEST] 固定骰点 {dice_result}')
+            self._scroll_to_bottom()
+
         if not player.can_move:
             reason = "被【灵鼠窃运】禁锢，无法行动" if player.status.get('shu_control', {}).get('direction') == 'stay' else "无法移动"
             self.log.append(f'{fmt_name(player)} {reason}')
@@ -1756,6 +1780,7 @@ class GameUI:
         # ---------- 子鼠技能 ----------
         if self.active_modal == 'shu_skill':
             cur = self.game.players[self.game.current_player_idx]
+
             # 1. 选择目标
             if self.shu_sub_modal == 'select_target':
                 for idx, p in enumerate(self.game.players):
@@ -1829,6 +1854,25 @@ class GameUI:
                         self.draw_info()
                         return True
             return False
+
+        # TEST MODE
+        # ---------- 二级菜单点击 ----------
+        for key in ("buy", "skill", "rent"):
+            btn = getattr(self, f'_test_l2_btn_{key}', None)
+            if btn and btn.collidepoint(pos):
+                self.test_l2_key = key
+                self.active_modal = "test_level3"   # 进入三级菜单
+                return True
+
+        # ---------- 三级菜单点击 ----------
+        if self.active_modal == 'test_level3' and self.test_l2_key == "buy":
+            for case_id in range(1, 5):
+                btn = getattr(self, f'_test_l3_btn_{case_id}', None)
+                if btn and btn.collidepoint(pos):
+                    run_buy_test_case(case_id, self)
+                    self.active_modal = None
+                    return True
+            # 以后 skill / rent 再扩展
 
     def _load_modal_text(self, kind):
         # 从 rules.md 读取全文，或仅显示英雄节选
@@ -1909,95 +1953,100 @@ class GameUI:
     ### TEST MODAL ###
     ### TEST LEVEL-2 MODAL ###
     def _draw_test_level2_modal(self):
-        """二级菜单：测试中心，3列×10行按钮网格，左对齐，可继续添加"""
+        """二级菜单：三列自适应按钮，固定居中弹窗"""
+        # 1) 统一弹窗尺寸
+        w, h = int(self.TEST_MODAL_W), int(self.TEST_MODAL_H)
+        x = (self.width - w) // 2
+        y = (self.height - h) // 2
+        panel = pygame.Rect(x, y, w, h)
+        pygame.draw.rect(self.screen, (250, 250, 255), panel, border_radius=12)
+        pygame.draw.rect(self.screen, (150, 150, 200), panel, 2, border_radius=12)
+
+        # 2) 大标题
+        title_font = get_chinese_font(32)
+        try:
+            title_font.set_bold(True)
+        except Exception:
+            pass
+        title_surf = title_font.render("测试中心", True, (40, 40, 40))
+        self.screen.blit(title_surf,
+                        title_surf.get_rect(centerx=panel.centerx,
+                        top=y + 20))
+
+        # 3) 按钮布局：固定 3 列，按钮大小自适应
         COLS = 3
-        ROWS = 10
-        BTN_W, BTN_H = 150, 32
-        GAP = 8
-        PAD = 16
-        font = FONT_SMALL
+        BUTTONS = [("地皮购买", "buy"),
+                ("技能测试", "skill"),
+                ("租金测试", "rent")]
+        ROWS = (len(BUTTONS) + COLS - 1) // COLS
+        PAD = 20
+        BTN_W = (w - 2 * PAD - (COLS - 1) * 10) // COLS   # 10 为列间距
+        BTN_H = 42
+        START_Y = y + 80
+        font = get_chinese_font(18)
+        try:
+            font.set_bold(True)
+        except Exception:
+            pass
 
-        # 计算整体宽高
-        total_w = COLS * BTN_W + (COLS - 1) * GAP + 2 * PAD
-        total_h = ROWS * BTN_H + (ROWS - 1) * GAP + 2 * PAD + 40  # 40 给标题
-
-        # 居中弹窗
-        rect = pygame.Rect(0, 0, total_w, total_h)
-        rect.center = (self.width // 2, self.height // 2)
-        pygame.draw.rect(self.screen, (250, 250, 255), rect, border_radius=12)
-        pygame.draw.rect(self.screen, (150, 150, 200), rect, 2, border_radius=12)
-
-        # 标题
-        title = font.render("测试中心", True, (40, 40, 40))
-        self.screen.blit(title, title.get_rect(center=(rect.centerx, rect.y + PAD + 10)))
-
-        # 按钮列表（可继续往 list 追加）
-        level2_buttons = [
-            ("地皮购买", "buy"),
-            ("技能测试", "skill"),
-            ("租金测试", "rent"),
-            # ……后续继续加
-        ]
-
-        # 绘制按钮
-        for idx, (label, key) in enumerate(level2_buttons):
+        for idx, (label, key) in enumerate(BUTTONS):
             col = idx % COLS
             row = idx // COLS
-            x = rect.x + PAD + col * (BTN_W + GAP)
-            y = rect.y + PAD + 40 + row * (BTN_H + GAP)
-            btn_rect = pygame.Rect(x, y, BTN_W, BTN_H)
+            bx = x + PAD + col * (BTN_W + 10)
+            by = START_Y + row * (BTN_H + 12)
+            btn_rect = pygame.Rect(bx, by, BTN_W, BTN_H)
             pygame.draw.rect(self.screen, (220, 220, 240), btn_rect, border_radius=6)
-            self.screen.blit(font.render(label, True, (0, 0, 0)),
-                            btn_rect.move(6, 4))
+
+            txt = font.render(label, True, (0, 0, 0))
+            self.screen.blit(txt, txt.get_rect(center=btn_rect.center))
             setattr(self, f'_test_l2_btn_{key}', btn_rect)
 
     ### TEST LEVEL-3 MODAL ###
     def _draw_test_level3_modal(self, l2_key: str):
-        """三级菜单：根据二级按钮 key 动态生成按钮"""
-        COLS = 3
-        BTN_W, BTN_H = 150, 32
-        GAP = 8
-        PAD = 16
-        font = FONT_SMALL
+        """三级菜单"""
+        w, h = int(self.TEST_MODAL_W), int(self.TEST_MODAL_H)
+        x, y = (self.width - w)//2, (self.height - h)//2
+        panel = pygame.Rect(x, y, w, h)
+        pygame.draw.rect(self.screen,(250,250,255),panel,border_radius=12)
+        pygame.draw.rect(self.screen,(150,150,200),panel,2,border_radius=12)
 
-        # 根据二级 key 决定三级按钮
-        if l2_key == "buy":
-            buttons = [
-                ("空地0元-购买", 0),
-                ("空地9999元-资金不足", 1),
-                ("已被占用-失败", 2),
-                ("特殊格子-不可买", 3),
-            ]
-        elif l2_key == "skill":
-            buttons = [("技能1", 10), ("技能2", 11)]  # 示例
-        elif l2_key == "rent":
-            buttons = [("租金1", 20), ("租金2", 21)]  # 示例
-        else:
-            buttons = []
+        # 标题
+        f_title = get_chinese_font(28)
+        try: f_title.set_bold(True)
+        except: pass
+        title = f"{ {'buy':'地皮购买','skill':'技能测试','rent':'租金测试'}.get(l2_key,'')} 用例"
+        self.screen.blit(f_title.render(title,True,(40,40,40)),
+                        f_title.render(title,True,(40,40,40)).get_rect(centerx=panel.centerx,top=y+18))
 
-        ROWS = (len(buttons) + COLS - 1) // COLS  # 自动行数
-        total_w = COLS * BTN_W + (COLS - 1) * GAP + 2 * PAD
-        total_h = ROWS * BTN_H + (ROWS - 1) * GAP + 2 * PAD + 40
+        # 4 个按钮 2×2
+        BUTTONS = [
+            ("空地可买",          1, 1),
+            ("空地钱不够",        2, 2),
+            ("已被别人占据",      3, 3),
+            ("特殊格子不能买",    6, 4),
+        ]
+        COLS = 2
+        ROWS = 2
+        PAD = 25
+        BTN_W = (w - 2*PAD - (COLS-1)*15)//COLS
+        BTN_H = 60
+        start_y = y + 90
+        f_btn = get_chinese_font(20)
+        try: f_btn.set_bold(True)
+        except: pass
 
-        rect = pygame.Rect(0, 0, total_w, total_h)
-        rect.center = (self.width // 2, self.height // 2)
-        pygame.draw.rect(self.screen, (250, 250, 255), rect, border_radius=12)
-        pygame.draw.rect(self.screen, (150, 150, 200), rect, 2, border_radius=12)
+        for idx,(label,grid,case_id) in enumerate(BUTTONS):
+            c,r = idx%COLS, idx//COLS
+            bx = x + PAD + c*(BTN_W+15)
+            by = start_y + r*(BTN_H+15)
+            btn_rect = pygame.Rect(bx,by,BTN_W,BTN_H)
+            pygame.draw.rect(self.screen,(220,220,240),btn_rect,border_radius=8)
 
-        title = font.render("测试中心", True, (40, 40, 40))
-        self.screen.blit(title, title.get_rect(center=(rect.centerx, rect.y + PAD + 10)))
+            txt = f_btn.render(label,True,(0,0,0))
+            self.screen.blit(txt, txt.get_rect(center=btn_rect.center))
 
-        # 绘制按钮
-        for idx, (label, case_id) in enumerate(buttons):
-            col = idx % COLS
-            row = idx // COLS
-            x = rect.x + PAD + col * (BTN_W + GAP)
-            y = rect.y + PAD + 40 + row * (BTN_H + GAP)
-            btn_rect = pygame.Rect(x, y, BTN_W, BTN_H)
-            pygame.draw.rect(self.screen, (220, 220, 240), btn_rect, border_radius=6)
-            self.screen.blit(font.render(label, True, (0, 0, 0)),
-                            btn_rect.move(6, 4))
-            setattr(self, f'_test_l3_btn_{case_id}', btn_rect)
+            # 用独立名字缓存，防止重名
+            setattr(self,f'_test_l3_btn_{case_id}',btn_rect)
 
     def _show_test_level3(self, parent_idx):
         """根据二级按钮索引弹出三级按钮（示例只放 4 个购买用例）"""

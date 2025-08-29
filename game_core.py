@@ -976,7 +976,7 @@ class Game:
         """
         tile = self.current_tile(player)
         if not self._is_property_tile(tile):
-            return False, "此处不可购买"
+            return False, "特殊格子不可购买"
         if tile.owner is not None:
             return False, "该地皮已有主人"
         if player.money < tile.price:
