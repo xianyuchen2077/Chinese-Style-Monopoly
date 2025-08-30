@@ -1917,10 +1917,11 @@ class GameUI:
                 for idx, (label, case_id) in enumerate([("乾",1),("坤",2),("震",3),("巽",4),("坎",5),("离",6),("艮",7),("兑",8)], 1):
                     btn = getattr(self, f'_test_l3_btn_{case_id}', None)
                     if btn and btn.collidepoint(pos):
-                        # 目前只做「乾」的演示，其余可留空或后续扩展
                         if label == "乾":
                             from game_test import run_bagua_test_case
                             run_bagua_test_case("乾", self)
+                        # elif label == "坤":
+
                         else:
                             self.log.append(f"【{label}】奇遇尚未实现")
                         self.active_modal = None

@@ -602,6 +602,11 @@ class Player:
                 # 灵魂移动由外部调用move_soul处理
                 return 0    # 本体不动，灵魂单独走
 
+        if self.status.pop("xun_speed", 0):
+            steps += 3
+            if self.game is not None and hasattr(self.game, "log"):
+                self.game.log.append(f"{fmt_name(self)} 因【风行灵散】移动额外 +3 步！")
+
         # 5. 正常方向移动（使用玩家当前的clockwise状态）
         return steps if self.clockwise else -steps
 
@@ -802,9 +807,13 @@ class Game:
             if old_pos != 0 and (old_pos + steps < 0):
                 passed_start = True
 
+
         if passed_start:
-            player.money += 5000
-            self.log.append(f'{fmt_name(player)} 经过起点，获得5000金币！')
+            if player.status.pop("kun_no_money_gain", 0) > 0:
+                self.log.append(f"{fmt_name(player)} 经过起点，但因【坤德含章】无法获得金币。")
+            else:
+                player.money += 5000
+                self.log.append(f'{fmt_name(player)} 经过起点，获得5000金币！')
 
         # 处理丑牛冲撞效果
         self.handle_niu_rampage(player)
@@ -902,6 +911,10 @@ class Game:
             for turns_left, value, desc in p.status.get("energy_events", []):
                 turns_left -= 1
                 if turns_left <= 0:
+                    actual = value
+                    if p.status.pop("zhen_shocked", 0):
+                        actual = value // 2
+                        self.log.append(f"{fmt_name(p)} 被【震慑】，灵气收益减半：{actual}")
                     p.energy += value
                     self.log.append(f"{fmt_name(p)} {desc} {abs(value)} 灵气")
                 else:
@@ -1195,6 +1208,10 @@ class Game:
                 self.log.append(
                     f"{fmt_name(player)} 资金不足，无法支付 {rent} 金币租金给 {fmt_name(owner)}"
                 )
+
+        if player.status.get("zhen_retribution", 0) > 0:
+            player.energy += 50
+            self.log.append(f"{fmt_name(player)} 因【震惧致福】补偿 50 灵气！")
 
     #TEST MODE
     def _run_earthquake_test(self, player):

@@ -66,6 +66,22 @@ def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
             _handle_qian_1(game, player)
         else:
             _handle_qian_2(game, player)
+    elif bagua.value == "坤":
+        if random.random() < 0.5:
+            _handle_kun_1(game, player)
+        else:
+            _handle_kun_2(game, player)
+    elif bagua.value == "震":
+        if random.random() < 0.5:
+            _handle_zhen_1(game, player)
+        else:
+            _handle_zhen_2(game, player)
+    elif bagua.value == "巽":
+        if random.random() < 0.5:
+            _handle_xun_1(game, player)
+        else:
+            _handle_xun_2(game, player)
+
     # 其余卦留空位，后续继续扩展
 
 # ---------- 八卦灵气值事件具体实现 ----------
@@ -89,3 +105,57 @@ def _handle_qian_2(game: Game, player: Player):
     refund = lost // 2
     player.status["energy_events"].append((4, -refund, "乾·天道盈虚 返还"))     # 这里是4，因为在这个回合还会-1
     game.log.append(f"3 回合后将返还 {refund} 灵气。")
+
+# ---------- 坤卦专用处理 ----------
+def _handle_kun_1(game: Game, player: Player):
+    """地载万物：立刻获得 (地皮数量 × 50) 灵气"""
+    tiles_owned = len(player.properties)
+    gain = tiles_owned * 50
+    player.energy += gain
+    game.log.append(f"{fmt_name(player)} 触发【坤·地载万物】：拥有 {tiles_owned} 块地皮，获得 {gain} 灵气！")
+
+def _handle_kun_2(game: Game, player: Player):
+    """坤德含章：将当前金币的10%转化为灵气，本回合无法获得金币"""
+    convert = int(player.money * 0.1)
+    player.energy += convert
+    player.money -= convert
+    player.status["kun_no_money_gain"] = 1  # 标记本回合无法获得金币
+    game.log.append(
+        f"{fmt_name(player)} 触发【坤·坤德含章】：消耗 {convert} 金币，转化为 {convert} 灵气！"
+    )
+
+# ---------- 震卦专用处理 ----------
+def _handle_zhen_1(game: Game, player: Player):
+    player.energy += 400
+    # 随机选择一个其他玩家
+    candidates = [p for p in game.players if p != player]
+    if not candidates:
+        game.log.append(f"{fmt_name(player)} 触发【震·雷出地奋】：获得 400 灵气，但无其他玩家可震慑。")
+        return
+    target = random.choice(candidates)
+    target.status["zhen_shocked"] = 1
+    game.log.append(f"{fmt_name(player)} 触发【震·雷出地奋】：获得 400 灵气，并震慑 {fmt_name(target)}，其下回合灵气收益减半！")
+
+def _handle_zhen_2(game: Game, player: Player):
+    lost = min(250, player.energy)
+    player.energy -= lost
+    player.status["zhen_retribution"] = 2   # 持续 2 回合
+    game.log.append(f"{fmt_name(player)} 触发【震·震惧致福】：损失 {lost} 灵气，但未来 2 回合内每次受负面效果将补偿 50 灵气！")
+
+# ---------- 巽卦专用处理 ----------
+def _handle_xun_1(game: Game, player: Player):
+    # 找灵气最高的玩家
+    candidates = [p for p in game.players if p != player and p.energy > 0]
+    if not candidates:
+        game.log.append(f"{fmt_name(player)} 触发【巽·随风赋灵】：无其他玩家可汲取灵气。")
+        return
+    richest = max(candidates, key=lambda p: p.energy)
+    gain = richest.energy // 5
+    player.energy += gain
+    game.log.append(f"{fmt_name(player)} 触发【巽·随风赋灵】：复制 {fmt_name(richest)} 20% 灵气，获得 {gain}！")
+
+def _handle_xun_2(game: Game, player: Player):
+    lost = player.energy // 4
+    player.energy -= lost
+    player.status["xun_speed"] = 1   # 仅影响下回合
+    game.log.append(f"{fmt_name(player)} 触发【巽·风行灵散】：损失 {lost} 灵气，下回合移动额外 +3 步！")
