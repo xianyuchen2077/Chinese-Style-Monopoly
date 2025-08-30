@@ -713,7 +713,7 @@ class GameBoard:
 
         for idx_list in edges.values():
             for tile_idx in random.sample(idx_list, 2):
-                self.tiles[tile_idx].special = "bagua_lingqi_encounter"
+                self.tiles[tile_idx].special = "encounter"
                 self.tiles[tile_idx].bagua = bagua_list[bagua_idx]
                 self.bagua_tiles[tile_idx] = bagua_list[bagua_idx]  # 将八卦信息存储到 self.bagua_tiles
                 bagua_idx += 1
@@ -871,7 +871,7 @@ class Game:
             p.can_move = True
             p.skill_mgr.tick_cooldown()   # 统一减 CD
 
-            # 业障
+            # 业障状态处理
             if 'karma' in p.status:
                 p.status['karma'] -= 1
                 if p.status['karma'] <= 0:
@@ -894,6 +894,19 @@ class Game:
                         sk['cooldown'] = 5
                         reason = "灵魂出窍回合数超出最长回合数" if sk['soul_turns'] <= 0 else "灵魂出窍超出最远距离"
                         self.log.append(f"{fmt_name(p)} {reason}，强制传送到 {p.position}")
+
+            # 八卦灵气值奇遇结算
+            for key in ["qian_yun_buff", "qian_kui_track"]:
+                buff = p.status.pop(key, None)
+                if buff:
+                    if key == "qian_yun_buff" and buff["turns"] > 0:
+                        p.energy += buff["gain"]; buff["turns"] -= 1
+                        if buff["turns"]: p.status[key] = buff
+                    elif key == "qian_kui_track":
+                        if buff["turns"] <= 0:
+                            p.energy += buff["refund_amount"]
+                        else:
+                            buff["turns"] -= 1; p.status[key] = buff
 
         self.log.append(f'轮到 {fmt_name(new_current)}')
 
@@ -971,6 +984,7 @@ class Game:
         pass
 
     def trigger_event(self, player):
+        from game_trigger_event import trigger_bagua_lingqi_encounter
         # 简易奇遇系统：根据格子五行或特殊类型触发效果
         tile = self.board.tiles[player.position]
         if tile.special == 'start':
@@ -1003,6 +1017,11 @@ class Game:
             elif e == Element.EARTH:
                 player.status['shield'] = max(player.status.get('shield', 0), 2)
                 self.log.append(f'{fmt_name(player)} 稳如磐石，获得2回合保护。')
+
+            # 八卦灵气奇遇
+            if tile.bagua:
+                trigger_bagua_lingqi_encounter(self, player, tile)
+
             return
 
     # ====== 地皮：购买与升级 ======

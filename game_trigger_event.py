@@ -53,35 +53,38 @@ BAGUA_LINGQI_EVENTS: Dict[Bagua, List[dict]] = {
     ],
 }
 
-# # ---------- 八卦灵气事件对外接口 ----------
-# def trigger_bagua_lingqi_encounter(game: "Game", player: "Player", tile: "Tile"):
-#     bagua = tile.bagua
-#     events = BAGUA_LINGQI_EVENTS[bagua]
-#     event = random.choice(events)
+# ---------- 八卦灵气事件对外接口 ----------
+def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
+    """踩到八卦格时调用"""
+    if tile.bagua is None:
+        return
 
-#     game.log.append(f"{fmt_name(player)} 触发【{bagua.value[0]}为{bagua.value[1]}】奇遇")
-#     game.log.append(f"「{event['name']}」- {event['desc']}")
+    bagua = tile.bagua
+    # 50% 概率二选一
+    if bagua.value == "乾":
+        if random.random() < 0.5:
+            _handle_qian_1(game, player)
+        else:
+            _handle_qian_2(game, player)
+    # 其余卦留空位，后续继续扩展
 
-#     handler_name = f"_handle_{bagua.name.lower()}_{event['name']}"
-#     globals()[handler_name](game, player, event)
+# ---------- 八卦灵气值事件具体实现 ----------
+# ---------- 乾卦专用处理 ----------
+def _handle_qian_1(game: Game, player: Player):
+    """云行雨施：立刻 +500 灵气，后续 3 回合每回合 +100"""
+    player.energy += 500
+    game.log.append(f"{fmt_name(player)} 触发【乾·云行雨施】：立刻获得 500 灵气！")
+    # 在 status 中注册后续增益
+    player.status["qian_yun_buff"] = {"turns": 3, "gain": 100}
+    game.log.append("后续 3 回合每回合再得 100 灵气。")
 
-# # ---------- 各事件实现 ----------
-# def _handle_qian_云行雨施(game: "Game", player: "Player", event: dict):
-#     player.add_lingqi(500, source=event['name'])
-#     player.lingqi_buffs.append({"type": "gain", "value": 100, "turns": 3, "source": event['name']})
-
-# def _handle_qian_天道盈虚(game: "Game", player: "Player", event: dict):
-#     lost = player.lose_lingqi(player.lingqi, source=event['name'])
-#     player.lingqi_buffs.append({"type": "gain", "value": lost // 2, "turns": 3, "source": "天道盈虚返还"})
-
-# def _handle_kun_地载万物(game: "Game", player: "Player", event: dict):
-#     gain = len(player.properties) * 50
-#     player.add_lingqi(gain, source=event['name'])
-
-# def _handle_kun_坤德含章(game: "Game", player: "Player", event: dict):
-#     convert = int(player.money * 0.1)
-#     player.money -= convert
-#     player.add_lingqi(convert, source=event['name'])
-#     player.add_status_effect("无法获得金币", 1)
-
-# # —— 其余 6 卦 12 个事件，可按同样格式继续补全 ——
+def _handle_qian_2(game: Game, player: Player):
+    """天道盈虚：清零当前灵气，3 回合后返还 50%"""
+    lost = player.energy
+    player.energy = 0
+    game.log.append(
+        f"{fmt_name(player)} 触发【乾·天道盈虚】：灵气清零（损失 {lost} 点）！"
+    )
+    # 把损失量记到 status，回合结束时由 Game.next_turn 统一结算返还
+    player.status["qian_kui_track"] = {"refund_amount": lost // 2, "turns": 3}
+    game.log.append("3 回合后将返还 50% 损失灵气。")
