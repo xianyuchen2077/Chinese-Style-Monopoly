@@ -67,6 +67,7 @@ GRID_SIZE = 13
 CELL_SIZE = 60      # 稍微减小，避免与顶部/设置重叠
 MARGIN = 60         # 更大边距
 INFO_WIDTH = 500    # 信息区宽
+Y_OFFSET = 20
 
 SKILL_SUMMARY = {
     '鼠': '灵鼠窃运（控向/停留）',
@@ -236,7 +237,7 @@ class GameUI:
         self.margin = margin
         self.info_width = info_width
         self.width = base_grid_w + self.margin * 2 + self.info_width
-        self.height = base_grid_h + self.margin * 2
+        self.height = base_grid_h + self.margin * 2 + Y_OFFSET    # 高度增加20个像素
         self.screen = pygame.display.set_mode((self.width, self.height))
         pygame.display.set_caption('中国文化棋盘游戏')
         self.clock = pygame.time.Clock()
@@ -452,6 +453,46 @@ class GameUI:
             rect = img.get_rect(center=(cx, cy))
             self.screen.blit(img, rect)
 
+    def _draw_bagua_tiles(self, grid_map):
+        """
+        在所有八卦灵气奇遇格子外侧绘制突出的八卦字。
+        grid_map 来自 draw_board()，用于把 tile_idx ↔ (r,c) 映射
+        """
+        font_bagua = get_chinese_font(20)
+        gold_color = (255, 215, 0)
+        black_color = (0, 0, 0)
+
+        for tile_idx, bagua in self.game.bagua_tiles.items():
+            pos = [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE) if grid_map[r][c] == tile_idx]
+            if not pos:
+                continue
+            r, c = pos[0]
+            cx = self.margin + c * CELL_SIZE + CELL_SIZE // 2
+            cy = self.margin + r * CELL_SIZE + CELL_SIZE // 2 + Y_OFFSET  # 向下偏移20像素
+
+            # 偏移到格子外侧
+            offset = CELL_SIZE // 2 + 15
+            if r == 0:  # 上边
+                x, y = cx, cy - offset
+            elif r == GRID_SIZE - 1:  # 下边
+                x, y = cx, cy + offset
+            elif c == 0:  # 左边
+                x, y = cx - offset, cy
+            elif c == GRID_SIZE - 1:  # 右边
+                x, y = cx + offset, cy
+            else:
+                continue
+
+            # 绘制八卦字
+            bagua_char = bagua.value
+            outline = font_bagua.render(bagua_char, True, gold_color)  # 金色描边
+            fill = font_bagua.render(bagua_char, True, black_color)    # 黑色填充
+
+            # 为文字添加描边效果
+            for dx, dy in [(-3, 0), (3, 0), (0, -3), (0, 3)]:
+                self.screen.blit(outline, outline.get_rect(center=(x + dx, y + dy)))
+            self.screen.blit(fill, fill.get_rect(center=(x, y)))
+
     def draw_board(self):
         # 背景
         self.screen.fill(BG_COLOR)
@@ -482,7 +523,7 @@ class GameUI:
                 if idx == -1:
                     continue
                 x = self.margin + col * CELL_SIZE
-                y = self.margin + row * CELL_SIZE
+                y = self.margin + row * CELL_SIZE + Y_OFFSET  # 向下偏移20像素
                 rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
 
                 # 填充颜色 & 边框
@@ -503,7 +544,7 @@ class GameUI:
                             continue
                         r, c = pos[0]
                         x = self.margin + c * CELL_SIZE
-                        y = self.margin + r * CELL_SIZE
+                        y = self.margin + r * CELL_SIZE + Y_OFFSET    # 向下偏移20像素
                         rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
                         pygame.draw.rect(self.screen, (0, 255, 0, 180), rect, 5)  # 绿色高亮边框
                 # 酉鸡技能模式下的暗化效果
@@ -557,6 +598,9 @@ class GameUI:
                     star_color = ZODIAC_COLORS.get(tile_obj.owner.zodiac, GOLD)
                     self._draw_owner_mark((x + CELL_SIZE - 14, y + 14), tile_obj)
 
+        # ---------- 绘制八卦字 ----------
+        self._draw_bagua_tiles(grid_map)
+
         # 3. 画玩家棋子
         for i, player in enumerate(self.game.players):
             # 1. 画主体
@@ -564,7 +608,7 @@ class GameUI:
             if not pos: continue
             row, col = pos[0]
             cx = self.margin + col * CELL_SIZE + CELL_SIZE // 2
-            cy = self.margin + row * CELL_SIZE + CELL_SIZE // 2
+            cy = self.margin + row * CELL_SIZE + CELL_SIZE // 2 + Y_OFFSET    # 高度增加20个像素
             self._draw_player_sprite(i, cx, cy, alpha=255, player=player, is_clone=False)
 
             # 2. 画分身
@@ -576,7 +620,7 @@ class GameUI:
                     if pos2:
                         row2, col2 = pos2[0]
                         cx2 = self.margin + col2*CELL_SIZE + CELL_SIZE//2
-                        cy2 = self.margin + row2*CELL_SIZE + CELL_SIZE//2
+                        cy2 = self.margin + row2*CELL_SIZE + CELL_SIZE//2 + Y_OFFSET    # 高度增加20个像素
                         self._draw_player_sprite(i, cx2, cy2, alpha=255, player=player, is_clone=True)
 
             # ========== 寅虎强制合体模式下的特殊绘制 ==========
@@ -588,7 +632,7 @@ class GameUI:
                     if pos2:
                         row2, col2 = pos2[0]
                         cx2 = self.margin + col2*CELL_SIZE + CELL_SIZE//2
-                        cy2 = self.margin + row2*CELL_SIZE + CELL_SIZE//2
+                        cy2 = self.margin + row2*CELL_SIZE + CELL_SIZE//2 + Y_OFFSET    # 高度增加20个像素
                         self._draw_player_sprite(i, cx2, cy2, alpha=255, player=player, is_clone=True)
 
             # ========== 未羊灵魂出窍半透明灵魂绘制 ==========
@@ -602,7 +646,7 @@ class GameUI:
                     if soul_pos:
                         sr, sc = soul_pos[0]
                         sx = self.margin + sc * CELL_SIZE + CELL_SIZE // 2
-                        sy = self.margin + sr * CELL_SIZE + CELL_SIZE // 2
+                        sy = self.margin + sr * CELL_SIZE + CELL_SIZE // 2 + Y_OFFSET    # 高度增加20个像素
                         self._draw_player_sprite(i, sx, sy, alpha=200)
 
         # 4. === 地皮悬停检测 ===
@@ -613,7 +657,7 @@ class GameUI:
                 idx = grid_map[row][col]
                 if idx == -1: continue
                 x = self.margin + col * CELL_SIZE
-                y = self.margin + row * CELL_SIZE
+                y = self.margin + row * CELL_SIZE + Y_OFFSET  # 向下偏移20像素
                 rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
                 if rect.collidepoint(mouse_pos):
                     self.hovered_tile = idx
@@ -1063,7 +1107,7 @@ class GameUI:
                 idx = grid_map[row][col]
                 if idx == -1: continue
                 x = self.margin + col * CELL_SIZE
-                y = self.margin + row * CELL_SIZE
+                y = self.margin + row * CELL_SIZE + Y_OFFSET  # 向下偏移20像素
                 rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
                 if rect.collidepoint(pos):
                     return idx

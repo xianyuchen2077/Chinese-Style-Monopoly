@@ -39,3 +39,5 @@ def calculate_rent_with_karma(self, base_rent):
 寅虎合体的时候不能够主动选择
 
 最后删掉所有的测试的相关函数的时候搜索 TEST MODE
+
+如果那天发现点击不灵敏了，搜索向下偏移20像素，说不定是这个的问题...

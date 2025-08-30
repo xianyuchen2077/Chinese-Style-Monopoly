@@ -642,6 +642,7 @@ class Tile:
         self.idx      = idx          # 格子序号
         self.name     = name         # 名称
         self.element  = element      # 五行
+        self.bagua    = None         # 八卦
         self.price    = price        # 售价（空地）
         self.owner    = None         # 所属玩家
         self.level    = BuildingLevel.EMPTY  # 建筑等级
@@ -649,7 +650,10 @@ class Tile:
 
 class GameBoard:
     def __init__(self):
+        from game_trigger_event import Bagua  # 避免循环引用
         self.tiles = self._init_tiles()
+        self.bagua_tiles = {}
+        self.set_bagua_tiles()
 
     def _init_tiles(self):
         # 使用48个外圈格子，与UI外圈一致
@@ -685,11 +689,39 @@ class GameBoard:
             name_counters[element] += 1
             special = special_indices.get(idx)
             tiles.append(Tile(idx, name, element=element, price=price_map[element], special=special))
+
         return tiles
+
+    def set_bagua_tiles(self) -> None:
+        """
+        为 48 格外圈棋盘随机贴上 8 个八卦标签。
+        每边（上、右、下、左）随机挑 2 格，共 8 格。
+        """
+        from game_trigger_event import Bagua  # 避免循环引用
+
+        GRID_SIZE = 13
+        edges = {
+            "top":    list(range(0, GRID_SIZE)),
+            "right":  list(range(GRID_SIZE, 2 * GRID_SIZE - 1)),
+            "bottom": list(range(2 * GRID_SIZE - 1, 3 * GRID_SIZE - 2))[::-1],
+            "left":   list(range(3 * GRID_SIZE - 2, 4 * GRID_SIZE - 4))[::-1],
+        }
+
+        bagua_list = list(Bagua)
+        random.shuffle(bagua_list)
+        bagua_idx = 0
+
+        for idx_list in edges.values():
+            for tile_idx in random.sample(idx_list, 2):
+                self.tiles[tile_idx].special = "bagua_lingqi_encounter"
+                self.tiles[tile_idx].bagua = bagua_list[bagua_idx]
+                self.bagua_tiles[tile_idx] = bagua_list[bagua_idx]  # 将八卦信息存储到 self.bagua_tiles
+                bagua_idx += 1
 
 class Game:
     def __init__(self, player_names, zodiacs):
         self.board = GameBoard()
+        self.bagua_tiles = self.board.bagua_tiles
         self.players = [Player(name, zodiac) for name, zodiac in zip(player_names, zodiacs)]
         self.current_player_idx = 0
         self.turn = 0
