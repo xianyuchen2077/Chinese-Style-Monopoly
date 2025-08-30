@@ -74,9 +74,9 @@ def _handle_qian_1(game: Game, player: Player):
     """云行雨施：立刻 +500 灵气，后续 3 回合每回合 +100"""
     player.energy += 500
     game.log.append(f"{fmt_name(player)} 触发【乾·云行雨施】：立刻获得 500 灵气！")
-    # 在 status 中注册后续增益
-    player.status["qian_yun_buff"] = {"turns": 3, "gain": 100}
-    game.log.append("后续 3 回合每回合再得 100 灵气。")
+    # 后续 3 回合
+    for i in range(1, 4):
+        player.status["energy_events"].append((i, 100, "乾·云行雨施"))
 
 def _handle_qian_2(game: Game, player: Player):
     """天道盈虚：清零当前灵气，3 回合后返还 50%"""
@@ -85,6 +85,7 @@ def _handle_qian_2(game: Game, player: Player):
     game.log.append(
         f"{fmt_name(player)} 触发【乾·天道盈虚】：灵气清零（损失 {lost} 点）！"
     )
-    # 把损失量记到 status，回合结束时由 Game.next_turn 统一结算返还
-    player.status["qian_kui_track"] = {"refund_amount": lost // 2, "turns": 3}
-    game.log.append("3 回合后将返还 50% 损失灵气。")
+    # 3 回合后返还 50%
+    refund = lost // 2
+    player.status["energy_events"].append((4, -refund, "乾·天道盈虚 返还"))     # 这里是4，因为在这个回合还会-1
+    game.log.append(f"3 回合后将返还 {refund} 灵气。")

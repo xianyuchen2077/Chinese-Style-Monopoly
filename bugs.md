@@ -41,3 +41,5 @@ def calculate_rent_with_karma(self, base_rent):
 最后删掉所有的测试的相关函数的时候搜索 TEST MODE
 
 如果那天发现点击不灵敏了，搜索向下偏移20像素，说不定是这个的问题...
+
+想一想人物的信息格子应该怎么处理

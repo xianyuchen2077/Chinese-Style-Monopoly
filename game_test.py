@@ -2,6 +2,7 @@
 # 所有测试用例集中管理
 
 from game_core import Game, Player, BuildingLevel, Element, fmt_name
+from game_trigger_event import Bagua
 
 def trigger_test_encounter(game, player, tile):
     """
@@ -202,4 +203,40 @@ def run_upgrade_test_case(case_id: int, ui_instance):
     # 统一把底层日志同步到 UI
     while game.log:
         ui_instance.log.append(game.log.pop(0))
+    ui_instance._scroll_to_bottom()
+
+def run_bagua_test_case(bagua_char: str, ui_instance):
+    """
+    测试指定八卦的奇遇
+    bagua_char 只能是 "乾" 等 8 个单字
+    """
+    ui_instance.log.clear()
+    ui_instance.test_mode = True
+
+    # 1) 新建单玩家游戏
+    game = Game(["测试玩家"], ["鼠"])
+    player = game.players[0]
+    player.game = game
+    player.position = 0
+
+    # 2) 把 1 号格固定为指定八卦
+    target_idx = 1
+    tile = game.board.tiles[target_idx]
+    tile.bagua = Bagua(bagua_char)
+    tile.special = "buff_bagua"
+    game.board.bagua_tiles[target_idx] = Bagua(bagua_char)  # 同步到 board.bagua_tiles，让 UI 能渲染
+    tile.element = Element.GOLD  # 随意给一个五行，不影响测试
+    tile.price = 1000
+
+    # 3) 固定骰点 1 → 正好走到 1 号格
+    ui_instance.test_dice = 1
+    game.test_mode = True
+
+    # 4) 挂到 UI
+    ui_instance.game = game
+    ui_instance.player_sprites = ui_instance._load_player_sprites()
+
+    # 5) 日志提示
+    ui_instance.log.append("=== 八卦灵气奇遇测试 ===")
+    ui_instance.log.append(f"八卦：{bagua_char}，目标格：{target_idx}，骰点：{ui_instance.test_dice}")
     ui_instance._scroll_to_bottom()

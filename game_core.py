@@ -554,14 +554,16 @@ class Player:
         self.name = name
         self.zodiac = zodiac
         self.is_ai = is_ai
-        self.money = 10000
+        self.money = 10000       # 初始资金
+        self.energy = 100        # 初始灵气
+        self._pending_return: list[tuple[int, int]] = []  # (剩余回合, 金额/灵气)
         self.position = 0
         self.score = 0
         self.properties = []
         self.status = {}
+        self.status.setdefault("energy_events", [])   # [(剩余回合, 数值, 描述)]
         self.cooldowns = {}
         self.split = False
-        self.energy = 0
         self.skill_mgr = SkillManager(self)
         self.clockwise = True          # True=顺时针, False=逆时针
         self.can_move = True           # False 表示本轮不能转盘
@@ -646,7 +648,7 @@ class Tile:
         self.price    = price        # 售价（空地）
         self.owner    = None         # 所属玩家
         self.level    = BuildingLevel.EMPTY  # 建筑等级
-        self.special  = special      # 特殊类型：start / encounter / hospital
+        self.special  = special      # 特殊类型
 
 class GameBoard:
     def __init__(self):
@@ -713,7 +715,7 @@ class GameBoard:
 
         for idx_list in edges.values():
             for tile_idx in random.sample(idx_list, 2):
-                self.tiles[tile_idx].special = "encounter"
+                self.tiles[tile_idx].special = "buff_bagua"
                 self.tiles[tile_idx].bagua = bagua_list[bagua_idx]
                 self.bagua_tiles[tile_idx] = bagua_list[bagua_idx]  # 将八卦信息存储到 self.bagua_tiles
                 bagua_idx += 1
@@ -896,17 +898,15 @@ class Game:
                         self.log.append(f"{fmt_name(p)} {reason}，强制传送到 {p.position}")
 
             # 八卦灵气值奇遇结算
-            for key in ["qian_yun_buff", "qian_kui_track"]:
-                buff = p.status.pop(key, None)
-                if buff:
-                    if key == "qian_yun_buff" and buff["turns"] > 0:
-                        p.energy += buff["gain"]; buff["turns"] -= 1
-                        if buff["turns"]: p.status[key] = buff
-                    elif key == "qian_kui_track":
-                        if buff["turns"] <= 0:
-                            p.energy += buff["refund_amount"]
-                        else:
-                            buff["turns"] -= 1; p.status[key] = buff
+            remain = []
+            for turns_left, value, desc in p.status.get("energy_events", []):
+                turns_left -= 1
+                if turns_left <= 0:
+                    p.energy += value
+                    self.log.append(f"{fmt_name(p)} {desc} {abs(value)} 灵气")
+                else:
+                    remain.append((turns_left, value, desc))
+            p.status["energy_events"] = remain
 
         self.log.append(f'轮到 {fmt_name(new_current)}')
 
@@ -996,7 +996,7 @@ class Game:
             player.money -= 800
             player.status['skip_turns'] = max(player.status.get('skip_turns', 0), 1)
             return
-        if tile.special == 'encounter':
+        if tile.special == 'encounter' or tile.special == 'buff_bagua':
             # 五行奇遇
             e = tile.element
             if e == Element.GOLD:

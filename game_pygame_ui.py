@@ -100,6 +100,14 @@ SKILL_DETAILS = {
     '猪': '福猪破障：发射激光摧毁直线路径第一个建筑（等级-1），对金减半，对特殊建筑无效。冷却2回合。',
 }
 
+# TEST MODE
+# 二级菜单按钮
+TEST_LEVEL2_BUTTONS = [("地皮购买", "buy"),
+        ("地皮加盖", "upgrade"),
+        ("技能测试", "skill"),
+        ("租金测试", "rent"),
+        ("八卦灵气奇遇测试", "bagua_lingqi")]
+
 pygame.init()
 pygame.font.init()
 # 中文字体加载，优先项目目录下字体
@@ -835,6 +843,7 @@ class GameUI:
 
             items = [
                 (f"金币：{player.money}", BLACK),
+                (f"灵气：{player.energy}", BLACK),
                 (f"位置：{player.position}", BLACK),
                 (f"冷却：{cd}", (100,100,100)),
                 (f"{attr_text}", (100,100,100)) if attr_text else ("", (0,0,0)),
@@ -863,7 +872,7 @@ class GameUI:
 
         log_font = get_chinese_font(18)
         line_h = log_font.get_linesize()
-        max_w = log_rect.width - 16          # 留边距
+        max_w = log_rect.width - 48          # 留边距
         lines = []
         for raw in self.log:
             # 按宽度拆行
@@ -1880,7 +1889,7 @@ class GameUI:
         # TEST MODE
         # ---------- 二级菜单点击 ----------
         if self.active_modal == "test":
-            for key in ("buy", "upgrade", "skill", "rent"):
+            for label, key in TEST_LEVEL2_BUTTONS:
                 btn = getattr(self, f'_test_l2_btn_{key}', None)
                 if btn and btn.collidepoint(pos):
                     self.test_l2_key = key
@@ -1904,6 +1913,18 @@ class GameUI:
                         run_upgrade_test_case(case_id, self)
                         self.active_modal = None
                         return True
+            elif l2_key == "bagua_lingqi":
+                for idx, (label, case_id) in enumerate([("乾",1),("坤",2),("震",3),("巽",4),("坎",5),("离",6),("艮",7),("兑",8)], 1):
+                    btn = getattr(self, f'_test_l3_btn_{case_id}', None)
+                    if btn and btn.collidepoint(pos):
+                        # 目前只做「乾」的演示，其余可留空或后续扩展
+                        if label == "乾":
+                            from game_test import run_bagua_test_case
+                            run_bagua_test_case("乾", self)
+                        else:
+                            self.log.append(f"【{label}】奇遇尚未实现")
+                        self.active_modal = None
+                        return
             # 以后 skill / rent 再扩展
 
     def _load_modal_text(self, kind):
@@ -2007,11 +2028,7 @@ class GameUI:
 
         # 3) 按钮布局：固定 3 列，按钮大小自适应
         COLS = 3
-        BUTTONS = [("地皮购买", "buy"),
-                ("地皮加盖", "upgrade"),
-                ("技能测试", "skill"),
-                ("租金测试", "rent")]
-        ROWS = (len(BUTTONS) + COLS - 1) // COLS
+        ROWS = (len(TEST_LEVEL2_BUTTONS) + COLS - 1) // COLS
         PAD = 20
         BTN_W = (w - 2 * PAD - (COLS - 1) * 10) // COLS   # 10 为列间距
         BTN_H = 42
@@ -2022,7 +2039,7 @@ class GameUI:
         except Exception:
             pass
 
-        for idx, (label, key) in enumerate(BUTTONS):
+        for idx, (label, key) in enumerate(TEST_LEVEL2_BUTTONS):
             col = idx % COLS
             row = idx // COLS
             bx = x + PAD + col * (BTN_W + 10)
@@ -2073,6 +2090,11 @@ class GameUI:
                 ("正常逐级加盖", 2, 2),
                 ("加盖条件不足", 3, 3),
                 ("地皮遭受破坏", 4, 4),
+            ]
+        elif l2_key == "bagua_lingqi":
+            BUTTONS = [
+                ("乾", 1, 1), ("坤", 1, 2), ("震", 1, 3), ("巽", 1, 4),
+                ("坎", 1, 5), ("离", 1, 6), ("艮", 1, 7), ("兑", 1, 8),
             ]
 
         COLS = 2
