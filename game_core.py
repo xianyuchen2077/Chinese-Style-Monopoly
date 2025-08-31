@@ -35,6 +35,15 @@ EARTHLY_NAMES = {
     '猴': '申猴', '鸡': '酉鸡', '狗': '戌狗', '猪': '亥猪'
 }
 
+# 所有负面效果
+class Negative(Enum):
+    """所有负面状态"""
+    SKIP_TURNS   = "skip_turns"
+    KARMA        = "karma"
+    SHU_CONTROL  = "shu_control"
+    FIRE_DEBUFF  = "fire_debuff"
+    ZHEN_SHOCKED = "zhen_shocked"
+
 # 统一日志玩家名称
 def fmt_name(player, tag: str = "") -> str:
     """
@@ -573,6 +582,26 @@ class Player:
         self.game: Optional["Game"] = None
         self.clone_idx: Optional[int] = None   # 分身棋子的格子序号
 
+    def add_energy(self, amount: int) -> int:
+            """
+            统一给玩家增减灵气。
+            """
+            if self.status.pop("zhen_shocked", 0):
+                if amount > 0:
+                    actual = amount // 2
+                    if self.game is not None and hasattr(self.game, "log"):
+                        self.game.log.append(f"{fmt_name(self)} 被【震慑】，本次灵气收益减半：{actual}（原{amount}）")
+                else:
+                    actual = amount
+            else:
+                actual = amount
+
+            self.energy += actual
+            return actual
+
+    def has_negative_status(self) -> bool:
+            """只要存在任何一个负面状态就返回 True"""
+            return any(ns.value in self.status for ns in Negative)
 
     def move_step(self, steps):
         """返回最终步数（含方向）"""
@@ -761,7 +790,13 @@ class Game:
         # 4. 是否购房、加盖
         pass  # UI层处理
 
-    # 转动转盘
+    def choose_target_player(self, caster: Player) -> Player | None:
+        """
+        从当前游戏中随机选择一名目标玩家（不包括施法者）
+        """
+        candidates = [p for p in self.players if p != caster]
+        return random.choice(candidates) if candidates else None
+
     def spin_wheel(self):
         """
         统一转盘逻辑：
@@ -811,11 +846,8 @@ class Game:
 
 
         if passed_start:
-            if player.status.pop("kun_no_money_gain", 0) > 0:
-                self.log.append(f"{fmt_name(player)} 经过起点，但因【坤德含章】无法获得金币。")
-            else:
-                player.money += 5000
-                self.log.append(f'{fmt_name(player)} 经过起点，获得5000金币！')
+            player.money += 5000
+            self.log.append(f'{fmt_name(player)} 经过起点，获得5000金币！')
 
         # 处理丑牛冲撞效果
         self.handle_niu_rampage(player)
@@ -908,32 +940,37 @@ class Game:
                         reason = "灵魂出窍回合数超出最长回合数" if sk['soul_turns'] <= 0 else "灵魂出窍超出最远距离"
                         self.log.append(f"{fmt_name(p)} {reason}，强制传送到 {p.position}")
 
-            # 八卦灵气值奇遇结算
+        self.log.append(f'轮到 {fmt_name(new_current)}')
+
+        # 八卦灵气值奇遇结算
+        for p in self.players:
+            # 清理标记
             p.status.pop("dui_skill_lock", None)
 
             if p.status.pop("gen_no_energy_gain", 0) > 0:
                 # 直接丢弃所有 energy_events
                 p.status["energy_events"].clear()
                 self.log.append(f"{fmt_name(p)} 受【山止灵滞】影响，本回合无法获得灵气。")
+
             remain = []
             for turns_left, value, desc in p.status.get("energy_events", []):
                 turns_left -= 1
                 if turns_left <= 0:
-                    actual = value
-                    if p.status.pop("zhen_shocked", 0):
-                        actual = value // 2
-                        self.log.append(f"{fmt_name(p)} 被【震慑】，灵气收益减半：{actual}")
-                    p.energy += value
-                    self.log.append(f"{fmt_name(p)} {desc} {abs(value)} 灵气")
+                    p.add_energy(value)
+                    if value > 0:
+                        self.log.append(f"{fmt_name(p)} 因 【{desc}】 获得 {abs(value)} 灵气")
+                    elif value < 0:
+                        self.log.append(f"{fmt_name(p)} 因 【{desc}】 损失 {abs(value)} 灵气")
                 else:
                     remain.append((turns_left, value, desc))
             p.status["energy_events"] = remain
 
         for sk in p.skill_mgr.skills.values():
             if sk.pop("li_debuff_end_turn", 0) <= self.turn:
-                sk['level'] = SkillLevel(sk['level'].value + 1)
-                self.log.append(f"{fmt_name(p)} 技能等级恢复！")
-                self.log.append(f'轮到 {fmt_name(new_current)}')
+                # 仅当不是 III 级时才允许恢复
+                if sk['level'] != SkillLevel.III:
+                    sk['level'] = SkillLevel(sk['level'].value + 1)
+                    # self.log.append(f"{fmt_name(p)} 技能等级恢复！")
 
     def player_properties(self, player):
         """返回该玩家拥有的所有地皮对象"""
@@ -1224,10 +1261,6 @@ class Game:
                 self.log.append(
                     f"{fmt_name(player)} 资金不足，无法支付 {rent} 金币租金给 {fmt_name(owner)}"
                 )
-
-        if player.status.get("zhen_retribution", 0) > 0:
-            player.energy += 50
-            self.log.append(f"{fmt_name(player)} 因【震惧致福】补偿 50 灵气！")
 
     #TEST MODE
     def _run_earthquake_test(self, player):

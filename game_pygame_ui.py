@@ -1916,12 +1916,14 @@ class GameUI:
             elif l2_key == "bagua_lingqi":
                 for idx, (label, case_id) in enumerate([("乾",1),("坤",2),("震",3),("巽",4),("坎",5),("离",6),("艮",7),("兑",8)], 1):
                     btn = getattr(self, f'_test_l3_btn_{case_id}', None)
+                    from game_test import run_bagua_test_case
                     if btn and btn.collidepoint(pos):
                         if label == "乾":
-                            from game_test import run_bagua_test_case
                             run_bagua_test_case("乾", self)
-                        # elif label == "坤":
-
+                        elif label == "坤":
+                            run_bagua_test_case("坤", self)
+                        elif label == "震":
+                            run_bagua_test_case("震", self)
                         else:
                             self.log.append(f"【{label}】奇遇尚未实现")
                         self.active_modal = None
@@ -2120,23 +2122,6 @@ class GameUI:
 
             # 统一命名
             setattr(self, f'_test_l3_btn_{case_id}', btn_rect)
-
-    def _show_test_level3(self, parent_idx):
-        """根据二级按钮索引弹出三级按钮（示例只放 4 个购买用例）"""
-        # 清空旧缓存
-        for i in range(4):
-            setattr(self, f'_test_third_btn_{i}', None)
-
-        items = ["空地0元", "空地9999", "已占用", "特殊格子"]
-        btn_h = 34
-        y0 = self.height // 2 - (len(items) * (btn_h + 10)) // 2
-        for idx, text in enumerate(items):
-            btn_rect = pygame.Rect(0, 0, 160, btn_h)
-            btn_rect.center = (self.width // 2, y0 + idx * (btn_h + 10))
-            pygame.draw.rect(self.screen, (180, 220, 180), btn_rect, border_radius=6)
-            self.screen.blit(FONT_SMALL.render(text, True, (30, 30, 30)),
-                            btn_rect.move(8, 6))
-            setattr(self, f'_test_third_btn_{idx}', btn_rect)
 
 if __name__ == '__main__':
     count, zodiacs = choose_players_ui()

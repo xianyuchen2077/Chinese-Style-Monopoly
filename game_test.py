@@ -214,10 +214,20 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
     ui_instance.test_mode = True
 
     # 1) 新建单玩家游戏
-    game = Game(["测试玩家"], ["鼠"])
+    game = Game(["测试玩家", "NPC"], ["鼠", "牛"])
     player = game.players[0]
     player.game = game
     player.position = 0
+    # 把 25、26、27 号地皮直接设为玩家财产
+    for idx in (25, 26, 27):
+        tile = game.board.tiles[idx]
+        tile.owner = player
+        tile.level = BuildingLevel.HUT        # 先统一设成茅屋，也可根据需要改
+        player.properties.append(idx)
+
+    player_npc = game.players[1]
+    player_npc.game = game
+    player_npc.position = 34
 
     # 2) 把 1 号格固定为指定八卦
     target_idx = 1
@@ -227,6 +237,13 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
     game.board.bagua_tiles[target_idx] = Bagua(bagua_char)  # 同步到 board.bagua_tiles，让 UI 能渲染
     tile.element = Element.GOLD  # 随意给一个五行，不影响测试
     tile.price = 1000
+
+    tile_2 = game.board.tiles[35]
+    tile_2.bagua = Bagua("乾")
+    tile_2.special = "buff_bagua"
+    game.board.bagua_tiles[35] = Bagua("乾")  # 同步到 board.bagua_tiles，让 UI 能渲染
+    tile_2.element = Element.GOLD  # 随意给一个五行，不影响测试
+    tile_2.price = 1000
 
     # 3) 固定骰点 1 → 正好走到 1 号格
     ui_instance.test_dice = 1
