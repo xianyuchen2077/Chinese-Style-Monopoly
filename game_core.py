@@ -633,6 +633,7 @@ class Player:
                 # 灵魂移动由外部调用move_soul处理
                 return 0    # 本体不动，灵魂单独走
 
+        # 巽·风行灵散
         if self.status.pop("xun_speed", 0):
             steps += 3
             if self.game is not None and hasattr(self.game, "log"):

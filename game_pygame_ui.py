@@ -1402,6 +1402,11 @@ class GameUI:
         # 执行移动
         new_pos = self.game.move_player(player, final_steps)
 
+        # 将游戏日志同步到UI日志
+        while self.game.log:
+            self.log.append(self.game.log.pop(0))
+        self._scroll_to_bottom()
+
         # 详细的移动日志
         if final_steps == 0:
             if player.zodiac == '羊' and player.skill_mgr.skills['羊']['soul_pos'] is not None:
@@ -1924,6 +1929,8 @@ class GameUI:
                             run_bagua_test_case("坤", self)
                         elif label == "震":
                             run_bagua_test_case("震", self)
+                        elif label == "巽":
+                            run_bagua_test_case("巽", self)
                         else:
                             self.log.append(f"【{label}】奇遇尚未实现")
                         self.active_modal = None

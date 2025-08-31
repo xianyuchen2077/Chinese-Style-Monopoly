@@ -187,7 +187,10 @@ def _handle_xun_2(game: Game, player: Player):
     lost = player.energy // 4
     player.add_energy(-lost)
     player.status["xun_speed"] = 1   # 仅影响下回合
-    game.log.append(f"{fmt_name(player)} 触发【巽·风行灵散】：损失 {lost} 灵气，下回合移动额外 +3 步！")
+    game.log.append(
+        f"{fmt_name(player)} 触发【巽·风行灵散】：损失 {lost} 灵气，"
+        f"但下回合移动额外 +3 步！"
+    )
 
 # ---------- 坎卦专用处理 ----------
 def _handle_kan_1(game: Game, player: Player):

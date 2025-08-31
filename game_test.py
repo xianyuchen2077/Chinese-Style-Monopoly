@@ -228,6 +228,7 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
     player_npc = game.players[1]
     player_npc.game = game
     player_npc.position = 34
+    player_npc.energy = 200
 
     # 2) 把 1 号格固定为指定八卦
     target_idx = 1
