@@ -3,7 +3,7 @@
 
 import random
 from typing import Dict, List
-from game_core import fmt_name, Game, Player, Tile
+from game_core import fmt_name, Game, Player, Tile, SkillLevel
 from enum import Enum
 
 # 八卦枚举
@@ -81,8 +81,26 @@ def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
             _handle_xun_1(game, player)
         else:
             _handle_xun_2(game, player)
-
-    # 其余卦留空位，后续继续扩展
+    elif bagua.value == "坎":
+        if random.random() < 0.5:
+            _handle_kan_1(game, player)
+        else:
+            _handle_kan_2(game, player)
+    elif bagua.value == "离":
+        if random.random() < 0.5:
+            _handle_li_1(game, player)
+        else:
+            _handle_li_2(game, player)
+    elif bagua.value == "艮":
+        if random.random() < 0.5:
+            _handle_gen_1(game, player)
+        else:
+            _handle_gen_2(game, player)
+    elif bagua.value == "兑":
+        if random.random() < 0.5:
+            _handle_dui_1(game, player)
+        else:
+            _handle_dui_2(game, player)
 
 # ---------- 八卦灵气值事件具体实现 ----------
 # ---------- 乾卦专用处理 ----------
@@ -159,3 +177,70 @@ def _handle_xun_2(game: Game, player: Player):
     player.energy -= lost
     player.status["xun_speed"] = 1   # 仅影响下回合
     game.log.append(f"{fmt_name(player)} 触发【巽·风行灵散】：损失 {lost} 灵气，下回合移动额外 +3 步！")
+
+# ---------- 坎卦专用处理 ----------
+def _handle_kan_1(game: Game, player: Player):
+    """坎渊悟道：已陷入负面状态数量 × 200 灵气"""
+    negative_count = len([
+        k for k in player.status.keys()
+        if k in {"skip_turns", "karma", "shu_control", "fire_debuff", "zhen_shocked"}
+    ])
+    gain = negative_count * 200
+    player.energy += gain
+    game.log.append(f"{fmt_name(player)} 触发【坎·坎渊悟道】：身陷 {negative_count} 种负面状态，获得 {gain} 灵气！")
+
+def _handle_kan_2(game: Game, player: Player):
+    """水流灵逝：-300 灵气并禁锢1回合"""
+    player.energy = max(0, player.energy - 300)
+    player.status["skip_turns"] = max(player.status.get("skip_turns", 0), 1)
+    game.log.append(f"{fmt_name(player)} 触发【坎·水流灵逝】：损失 300 灵气并被禁锢 1 回合！")
+
+# ---------- 离卦专用处理 ----------
+def _handle_li_1(game: Game, player: Player):
+    """离明顿悟：最高建筑等级 × 250 灵气"""
+    max_level = max((game.board.tiles[i].level.value for i in player.properties), default=0)
+    gain = max_level * 250
+    player.energy += gain
+    game.log.append(f"{fmt_name(player)} 触发【离·离明顿悟】：最高建筑等级 {max_level}，获得 {gain} 灵气！")
+
+def _handle_li_2(game: Game, player: Player):
+    """火焚灵耗：-350 灵气，随机技能-1级3回合"""
+    player.energy = max(0, player.energy - 350)
+    # 找到已学会的最高级技能
+    skills = player.skill_mgr.skills
+    candidates = [s for s in skills.values() if s['level'].value > 1]
+    if candidates:
+        skill = random.choice(candidates)
+        original = skill['level']
+        skill['level'] = SkillLevel(skill['level'].value - 1)
+        skill["li_debuff_end_turn"] = game.turn + 3
+        game.log.append(f"{fmt_name(player)} 触发【离·火焚灵耗】：{skill} 等级暂时降至 {skill['level'].name}，持续 3 回合！")
+    else:
+        game.log.append(f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气，无技能可被降级！")
+
+# ---------- 艮卦专用处理 ----------
+def _handle_gen_1(game: Game, player: Player):
+    """艮止凝元：回合数 × 30 灵气，上限600"""
+    gain = min(game.turn * 30, 600)
+    player.energy += gain
+    game.log.append(f"{fmt_name(player)} 触发【艮·艮止凝元】：回合沉淀，获得 {gain} 灵气！")
+
+def _handle_gen_2(game: Game, player: Player):
+    """山止灵滞：2 回合无法获得灵气，租金-30%"""
+    player.status["gen_no_energy_gain"] = 2
+    player.status["gen_rent_discount"] = 0.7  # 支付 70 %
+    game.log.append(f"{fmt_name(player)} 触发【艮·山止灵滞】：2 回合内无法获得灵气，租金减免 30%！")
+
+# ---------- 兑卦专用处理 ----------
+def _handle_dui_1(game: Game, player: Player):
+    """兑言纳灵：玩家总数 × 150 灵气"""
+    gain = len(game.players) * 150
+    player.energy += gain
+    game.log.append(f"{fmt_name(player)} 触发【兑·兑言纳灵】：众友讲习，获得 {gain} 灵气！")
+
+def _handle_dui_2(game: Game, player: Player):
+    """泽涸灵枯：-30% 灵气且下回合无法使用技能"""
+    lost = player.energy * 3 // 10
+    player.energy -= lost
+    player.status["dui_skill_lock"] = 1
+    game.log.append(f"{fmt_name(player)} 触发【兑·泽涸灵枯】：流失 {lost} 灵气，下回合无法使用技能！")

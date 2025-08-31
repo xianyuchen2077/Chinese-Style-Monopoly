@@ -111,6 +111,8 @@ class SkillManager:
         }
 
     def can_use_active_skill(self):
+        if self.player.status.get("dui_skill_lock"):
+            return False
         z = self.player.zodiac
         if z in self.skills:
             return self.skills[z]['cooldown'] == 0
@@ -907,6 +909,12 @@ class Game:
                         self.log.append(f"{fmt_name(p)} {reason}，强制传送到 {p.position}")
 
             # 八卦灵气值奇遇结算
+            p.status.pop("dui_skill_lock", None)
+
+            if p.status.pop("gen_no_energy_gain", 0) > 0:
+                # 直接丢弃所有 energy_events
+                p.status["energy_events"].clear()
+                self.log.append(f"{fmt_name(p)} 受【山止灵滞】影响，本回合无法获得灵气。")
             remain = []
             for turns_left, value, desc in p.status.get("energy_events", []):
                 turns_left -= 1
@@ -921,7 +929,11 @@ class Game:
                     remain.append((turns_left, value, desc))
             p.status["energy_events"] = remain
 
-        self.log.append(f'轮到 {fmt_name(new_current)}')
+        for sk in p.skill_mgr.skills.values():
+            if sk.pop("li_debuff_end_turn", 0) <= self.turn:
+                sk['level'] = SkillLevel(sk['level'].value + 1)
+                self.log.append(f"{fmt_name(p)} 技能等级恢复！")
+                self.log.append(f'轮到 {fmt_name(new_current)}')
 
     def player_properties(self, player):
         """返回该玩家拥有的所有地皮对象"""
@@ -1173,6 +1185,10 @@ class Game:
         # 检查玩家是否有业障（牛的技能）
         if 'karma' in player.status and player.status['karma'] > 0:
             rent = int(rent * 1.5)  # 业障状态下租金+50%
+
+        # 【艮】灵气值奇遇——【山止灵滞】
+        if player.status.get("gen_rent_discount"):
+            rent = int(rent * player.status["gen_rent_discount"])
 
         return max(0, rent)  # 确保租金非负
 
