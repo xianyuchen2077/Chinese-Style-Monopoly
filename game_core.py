@@ -2,6 +2,7 @@
 # 游戏核心逻辑模块
 
 from code import interact
+from pydoc import describe
 import random
 from enum import Enum
 from typing import Self, Optional
@@ -137,7 +138,7 @@ class SkillManager:
         }
 
     def can_use_active_skill(self):
-        if self.player.status.get("dui_skill_lock"):
+        if self.player.status.get("兑·泽涸灵枯"):
             return False
         z = self.player.zodiac
         if z in self.skills:
@@ -964,9 +965,6 @@ class Game:
 
         # 八卦灵气值奇遇结算
         for p in self.players:
-            # 清理标记
-            p.status.pop("dui_skill_lock", None)
-
             left = p.status.get("gen_no_energy_gain", 0)
             if left > 0:
                 left -= 1
@@ -1004,8 +1002,11 @@ class Game:
                     # 和技能相关的事件
                     elif type == "skill":
                         zodiac, original_level, desc = payload
-                        p.skill_mgr.skills[zodiac]['level'] = original_level
-                        self.log.append(f"{fmt_name(p)} 的【{SKILL_NAMES[zodiac]}】等级已恢复至 {original_level.name}！")
+                        if desc == "离·火焚灵耗":
+                            p.skill_mgr.skills[zodiac]['level'] = original_level
+                            self.log.append(f"{fmt_name(p)} 的【{SKILL_NAMES[zodiac]}】等级已恢复至 {original_level.name}！")
+                        elif desc == "兑·泽涸灵枯":
+                            p.status.pop("兑·泽涸灵枯", None)
                 else:
                     remain.append((turns_left, type, *payload))
 

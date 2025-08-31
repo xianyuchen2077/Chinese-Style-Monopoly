@@ -268,5 +268,4 @@ def _handle_dui_2(game: Game, player: Player):
     # 记录“全局回合解锁技能”
     unlock_turn = game.turn + len(game.players)       # 下个大回合
     player.status.setdefault("energy_events", []).append((unlock_turn, "skill", 0, "兑·泽涸灵枯"))
-    player.status["dui_skill_lock"] = 1
     game.log.append(f"{fmt_name(player)} 触发【兑·泽涸灵枯】：流失 {lost} 灵气，下回合无法使用技能！")
