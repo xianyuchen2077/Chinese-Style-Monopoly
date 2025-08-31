@@ -3,7 +3,7 @@
 
 import random
 from typing import Dict, List
-from game_core import fmt_name, Game, Player, Tile, SkillLevel
+from game_core import fmt_name, Game, Player, Tile, SkillLevel, Negative
 from enum import Enum
 
 # 八卦枚举
@@ -197,7 +197,7 @@ def _handle_kan_1(game: Game, player: Player):
     """坎渊悟道：已陷入负面状态数量 × 200 灵气"""
     negative_count = len([
         k for k in player.status.keys()
-        if k in {"skip_turns", "karma", "shu_control", "fire_debuff", "zhen_shocked"}
+        if k in Negative
     ])
     gain = negative_count * 200
     player.add_energy(gain)
@@ -216,7 +216,10 @@ def _handle_li_1(game: Game, player: Player):
     max_level = max((game.board.tiles[i].level.value for i in player.properties), default=0)
     gain = max_level * 250
     player.add_energy(gain)
-    game.log.append(f"{fmt_name(player)} 触发【离·离明顿悟】：最高建筑等级 {max_level}，获得 {gain} 灵气！")
+    game.log.append(
+        f"{fmt_name(player)} 触发【离·离明顿悟】：最高建筑等级 {max_level}，"
+        f"获得 {gain} 灵气！"
+    )
 
 def _handle_li_2(game: Game, player: Player):
     """火焚灵耗：损失 350 灵气，随机技能-1级3回合"""
@@ -230,9 +233,15 @@ def _handle_li_2(game: Game, player: Player):
         original = skill['level']
         skill['level'] = SkillLevel(skill['level'].value - 1)
         skill["li_debuff_end_turn"] = game.turn + 3
-        game.log.append(f"{fmt_name(player)} 触发【离·火焚灵耗】：{skill} 等级暂时降至 {skill['level'].name}，持续 3 回合！")
+        game.log.append(
+            f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气,"
+            f"{skill} 等级暂时降至 {skill['level'].name}，持续 3 回合！"
+        )
     else:
-        game.log.append(f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气，无技能可被降级！")
+        game.log.append(
+            f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气，"
+            f"无技能可被降级！"
+        )
 
 # ---------- 艮卦专用处理 ----------
 def _handle_gen_1(game: Game, player: Player):

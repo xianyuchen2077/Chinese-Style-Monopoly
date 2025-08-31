@@ -1419,11 +1419,6 @@ class GameUI:
             self.log.append(f'{fmt_name(player)} 逆时针移动{abs(final_steps)}步：{old_pos} → {new_pos}')
         self._scroll_to_bottom()
 
-        # 将游戏日志同步到UI日志
-        while self.game.log:
-            self.log.append(self.game.log.pop(0))
-        self._scroll_to_bottom()
-
         # 触发格子效果
         self.game.after_trigger(player)
         while self.game.log:
@@ -1929,6 +1924,12 @@ class GameUI:
                             run_bagua_test_case("坤", self)
                         elif label == "震":
                             run_bagua_test_case("震", self)
+                        elif label == "巽":
+                            run_bagua_test_case("巽", self)
+                        elif label == "坎":
+                            run_bagua_test_case("坎", self)
+                        elif label == "离":
+                            run_bagua_test_case("离", self)
                         elif label == "巽":
                             run_bagua_test_case("巽", self)
                         else:

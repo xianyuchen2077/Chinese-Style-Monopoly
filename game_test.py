@@ -1,7 +1,7 @@
 # game_test.py
 # 所有测试用例集中管理
 
-from game_core import Game, Player, BuildingLevel, Element, fmt_name
+from game_core import Game, Player, BuildingLevel, Element, fmt_name, SkillLevel
 from game_trigger_event import Bagua
 
 def trigger_test_encounter(game, player, tile):
@@ -224,6 +224,20 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
         tile.owner = player
         tile.level = BuildingLevel.HUT        # 先统一设成茅屋，也可根据需要改
         player.properties.append(idx)
+
+    if bagua_char == "坎":
+        # 给主角加两个负面效果，方便测试
+        player.status["skip_turns"] = 2          # 禁足 2 回合
+        player.status["karma"] = 2               # 业障 2 回合
+        game.log.append("【测试】已为测试玩家添加 skip_turns、karma 两种负面状态")
+    elif bagua_char == "离":
+        # 把所有可升级技能升到 III 级
+        for sk in player.skill_mgr.skills.values():
+            if "level" in sk and sk["level"].value < 3:
+                sk["level"] = SkillLevel.III
+        game.log.append("【测试】已将该玩家所有技能等级升至最高级（III）")
+        game.board.tiles[26].level = BuildingLevel.PALACE
+        game.log.append("【测试】已将26号地皮等级升至最高级（PALACE）")
 
     player_npc = game.players[1]
     player_npc.game = game
