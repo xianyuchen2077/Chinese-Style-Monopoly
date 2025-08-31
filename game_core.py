@@ -35,6 +35,22 @@ EARTHLY_NAMES = {
     '猴': '申猴', '鸡': '酉鸡', '狗': '戌狗', '猪': '亥猪'
 }
 
+# 生肖→技能名称（用于日志及界面）
+SKILL_NAMES = {
+    '鼠': '灵鼠窃运',
+    '牛': '蛮牛冲撞',
+    '虎': '猛虎分身',
+    '兔': '玉兔疾行',
+    '龙': '真龙吐息',
+    '蛇': '灵蛇隐踪',
+    '马': '天马守护',
+    '羊': '灵羊出窍',
+    '猴': '灵猴百变',
+    '鸡': '金鸡腾翔',
+    '狗': '天狗护体',
+    '猪': '福猪破障',
+}
+
 # 所有负面效果
 class Negative(Enum):
     """所有负面状态"""
@@ -43,6 +59,7 @@ class Negative(Enum):
     SHU_CONTROL  = "shu_control"
     FIRE_DEBUFF  = "fire_debuff"
     ZHEN_SHOCKED = "zhen_shocked"
+    LI_SKILL_DOWNGRADE = "li_skill_downgrade"
 
 # 统一日志玩家名称
 def fmt_name(player, tag: str = "") -> str:
@@ -763,7 +780,8 @@ class Game:
         self.bagua_tiles = self.board.bagua_tiles
         self.players = [Player(name, zodiac) for name, zodiac in zip(player_names, zodiacs)]
         self.current_player_idx = 0
-        self.turn = 0
+        self.turn = 0       # 独立回合
+        self.game_turn = 0  # 游戏大回合
         self.log = []
         self.tiger_sub_turns = []  # [(player, "main"), (player, "clone")] 或空
 
@@ -907,6 +925,7 @@ class Game:
         # 2. 正常轮换
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
         self.turn += 1
+        self.game_turn = self.turn // len(self.players)
 
         # 清理上一位玩家状态
         new_current = self.players[self.current_player_idx]
@@ -948,40 +967,51 @@ class Game:
             # 清理标记
             p.status.pop("dui_skill_lock", None)
 
-            if p.status.pop("gen_no_energy_gain", 0) > 0:
-                # 直接丢弃所有 energy_events
-                p.status["energy_events"].clear()
+            left = p.status.get("gen_no_energy_gain", 0)
+            if left > 0:
+                left -= 1
+                if left == 0:
+                    p.status.pop("gen_no_energy_gain", None)
+                else:
+                    p.status["gen_no_energy_gain"] = left
+                # 清空本回合所有灵气事件
+                p.status.pop("energy", None)  # 仅过滤掉 energy 类型
                 self.log.append(f"{fmt_name(p)} 受【山止灵滞】影响，本回合无法获得灵气。")
 
             remain = []
-            for turns_left, value, desc in p.status.get("energy_events", []):
+            for evt in p.status.get("energy_events", []):
+                turns_left, type, *payload = evt
                 turns_left -= 1
                 if turns_left <= 0:
-                    # 震·震惧致福专属：必须存在负面状态才触发
-                    if desc == "震·震惧致福":
-                        if p.has_negative_status():
+                    # 和灵气值相关的事件
+                    if type == "energy":
+                        value, desc = payload
+                        # 震·震惧致福专属：必须存在负面状态才触发
+                        if desc == "震·震惧致福":
+                            if p.has_negative_status():
+                                p.add_energy(value)
+                                self.log.append(
+                                    f"{fmt_name(p)} 在【震·震惧致福】回合内受负面效果，补偿 50 灵气"
+                                )
+                            # 无论触发与否，该事件一次性消耗
+                        else:
+                            # 普通事件直接结算
                             p.add_energy(value)
-                            self.log.append(
-                                f"{fmt_name(p)} 在【震·震惧致福】回合内受负面效果，补偿 50 灵气"
-                            )
-                        # 无论触发与否，该事件一次性消耗
-                    else:
-                        # 普通事件直接结算
-                        p.add_energy(value)
-                        if value > 0:
-                            self.log.append(f"{fmt_name(p)} 因【{desc}】获得 {abs(value)} 灵气")
-                        elif value < 0:
-                            self.log.append(f"{fmt_name(p)} 因【{desc}】损失 {abs(value)} 灵气")
+                            if value > 0:
+                                self.log.append(f"{fmt_name(p)} 因【{desc}】获得 {abs(value)} 灵气")
+                            elif value < 0:
+                                self.log.append(f"{fmt_name(p)} 因【{desc}】损失 {abs(value)} 灵气")
+                    # 和技能相关的事件
+                    elif type == "skill":
+                        zodiac, original_level, desc = payload
+                        p.skill_mgr.skills[zodiac]['level'] = original_level
+                        self.log.append(f"{fmt_name(p)} 的【{SKILL_NAMES[zodiac]}】等级已恢复至 {original_level.name}！")
                 else:
-                    remain.append((turns_left, value, desc))
-            p.status["energy_events"] = remain
+                    remain.append((turns_left, type, *payload))
 
-        for sk in p.skill_mgr.skills.values():
-            if sk.pop("li_debuff_end_turn", 0) <= self.turn:
-                # 仅当不是 III 级时才允许恢复
-                if sk['level'] != SkillLevel.III:
-                    sk['level'] = SkillLevel(sk['level'].value + 1)
-                    # self.log.append(f"{fmt_name(p)} 技能等级恢复！")
+            # 重新写回玩家状态
+            if remain:
+                p.status["energy_events"] = remain
 
     def player_properties(self, player):
         """返回该玩家拥有的所有地皮对象"""
@@ -1235,8 +1265,10 @@ class Game:
             rent = int(rent * 1.5)  # 业障状态下租金+50%
 
         # 【艮】灵气值奇遇——【山止灵滞】
-        if player.status.get("gen_rent_discount"):
-            rent = int(rent * player.status["gen_rent_discount"])
+        discount = player.status.get("gen_rent_discount", 1.0)
+        gen_left_turn = player.status.get("gen_no_energy_gain", 0)
+        if gen_left_turn > 0 :
+            rent = int(rent * discount)
 
         return max(0, rent)  # 确保租金非负
 

@@ -1930,10 +1930,10 @@ class GameUI:
                             run_bagua_test_case("坎", self)
                         elif label == "离":
                             run_bagua_test_case("离", self)
-                        elif label == "巽":
-                            run_bagua_test_case("巽", self)
-                        else:
-                            self.log.append(f"【{label}】奇遇尚未实现")
+                        elif label == "艮":
+                            run_bagua_test_case("艮", self)
+                        elif label == "兑":
+                            run_bagua_test_case("兑", self)
                         self.active_modal = None
                         return
             # 以后 skill / rent 再扩展

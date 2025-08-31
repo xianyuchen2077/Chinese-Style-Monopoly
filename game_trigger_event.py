@@ -3,7 +3,7 @@
 
 import random
 from typing import Dict, List
-from game_core import fmt_name, Game, Player, Tile, SkillLevel, Negative
+from game_core import fmt_name, Game, Player, Tile, SkillLevel, Negative, SKILL_NAMES
 from enum import Enum
 
 # 八卦枚举
@@ -109,8 +109,8 @@ def _handle_qian_1(game: Game, player: Player):
     gain = player.add_energy(500)
     game.log.append(f"{fmt_name(player)} 触发【乾·云行雨施】：立刻获得 {gain} 灵气！")
     # 后续 3 回合
-    for i in range(2, 5):   # 在这个回合就会先-1
-        player.status.setdefault("energy_events", []).append((i * len(game.players), 100, "乾·云行雨施"))
+    for i in range(1, 4):
+        player.status.setdefault("energy_events", []).append((i * len(game.players), "energy", 100, "乾·云行雨施"))
     game.log.append(f"后续 3 回合每回合返还 100 灵气")
 
 def _handle_qian_2(game: Game, player: Player):
@@ -120,7 +120,7 @@ def _handle_qian_2(game: Game, player: Player):
     game.log.append(f"{fmt_name(player)} 触发【乾·天道盈虚】：灵气清零（损失 {lost} 点）！")
     # 3 回合后返还 50%
     refund = lost // 2
-    player.status.setdefault("energy_events", []).append((4, refund, "乾·天道盈虚"))     # 这里是4，因为在这个回合还会-1
+    player.status.setdefault("energy_events", []).append((4 * len(game.players), "energy", refund, "乾·天道盈虚"))     # 这里是4，因为在这个回合还会-1
     game.log.append(f"3 个回合后将返还 {refund} 灵气")
 
 # ---------- 坤卦专用处理 ----------
@@ -165,7 +165,7 @@ def _handle_zhen_2(game: Game, player: Player):
     player.add_energy(-lost)
 
     for i in range(1, 3):   # 在这个回合就会先-1
-        player.status.setdefault("energy_events", []).append((i * len(game.players), 50, "震·震惧致福"))
+        player.status.setdefault("energy_events", []).append((i * len(game.players), "energy", 50, "震·震惧致福"))
     game.log.append(
         f"{fmt_name(player)} 触发【震·震惧致福】：损失 {lost} 灵气，"
         f"未来 2 回合内每次受负面效果将补偿 50 灵气！"
@@ -216,43 +216,41 @@ def _handle_li_1(game: Game, player: Player):
     max_level = max((game.board.tiles[i].level.value for i in player.properties), default=0)
     gain = max_level * 250
     player.add_energy(gain)
-    game.log.append(
-        f"{fmt_name(player)} 触发【离·离明顿悟】：最高建筑等级 {max_level}，"
-        f"获得 {gain} 灵气！"
-    )
+    game.log.append(f"{fmt_name(player)} 触发【离·离明顿悟】：最高建筑等级 {max_level}，")
+    game.log.append(f"获得 {gain} 灵气！")
 
 def _handle_li_2(game: Game, player: Player):
-    """火焚灵耗：损失 350 灵气，随机技能-1级3回合"""
+    """火焚灵耗：损失 350 灵气，随机技能-1级,3回合后恢复"""
     lost = min(350, player.energy)
     player.add_energy(-lost)
+
     # 找到已学会的最高级技能
     skills = player.skill_mgr.skills
-    candidates = [s for s in skills.values() if s['level'].value > 1]
+    candidates = [(z, sk) for z, sk in skills.items() if sk['level'].value > 1]
     if candidates:
-        skill = random.choice(candidates)
-        original = skill['level']
+        zodiac, skill = random.choice(candidates)
+        original_level = skill['level']
+        # 立刻降级
         skill['level'] = SkillLevel(skill['level'].value - 1)
-        skill["li_debuff_end_turn"] = game.turn + 3
-        game.log.append(
-            f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气,"
-            f"{skill} 等级暂时降至 {skill['level'].name}，持续 3 回合！"
-        )
+        game.log.append(f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气，")
+        game.log.append(f"技能【{SKILL_NAMES[zodiac]}】等级暂时降至 {skill['level'].name}，持续 3 回合！")
+
+        # 登记 3 回合后恢复（延迟队列）
+        player.status.setdefault("energy_events", []).append((3 * len(game.players), "skill", zodiac, original_level, "离·火焚灵耗"))
     else:
-        game.log.append(
-            f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气，"
-            f"无技能可被降级！"
-        )
+        game.log.append(f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气，")
+        game.log.append(f"无技能可被降级！")
 
 # ---------- 艮卦专用处理 ----------
 def _handle_gen_1(game: Game, player: Player):
     """艮止凝元：回合数 × 30 灵气，上限600"""
-    gain = min(game.turn * 30, 600)
+    gain = min(game.game_turn * 30, 600)
     player.add_energy(gain)
     game.log.append(f"{fmt_name(player)} 触发【艮·艮止凝元】：回合沉淀，获得 {gain} 灵气！")
 
 def _handle_gen_2(game: Game, player: Player):
     """山止灵滞：2 回合无法获得灵气，租金-30%"""
-    player.status["gen_no_energy_gain"] = 2
+    player.status["gen_no_energy_gain"] = 2 * len(game.players)
     player.status["gen_rent_discount"] = 0.7  # 支付 70 %
     game.log.append(f"{fmt_name(player)} 触发【艮·山止灵滞】：2 回合内无法获得灵气，租金减免 30%！")
 
