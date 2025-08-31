@@ -109,7 +109,7 @@ def _handle_qian_1(game: Game, player: Player):
     gain = player.add_energy(500)
     game.log.append(f"{fmt_name(player)} 触发【乾·云行雨施】：立刻获得 {gain} 灵气！")
     # 后续 3 回合
-    for i in range(1, 4):
+    for i in range(2, 5):   # 在这个回合就会先-1
         player.status.setdefault("energy_events", []).append((i * len(game.players), 100, "乾·云行雨施"))
     game.log.append(f"后续 3 回合每回合返还 100 灵气")
 

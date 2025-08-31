@@ -956,11 +956,21 @@ class Game:
             for turns_left, value, desc in p.status.get("energy_events", []):
                 turns_left -= 1
                 if turns_left <= 0:
-                    p.add_energy(value)
-                    if value > 0:
-                        self.log.append(f"{fmt_name(p)} 因 【{desc}】 获得 {abs(value)} 灵气")
-                    elif value < 0:
-                        self.log.append(f"{fmt_name(p)} 因 【{desc}】 损失 {abs(value)} 灵气")
+                    # 震·震惧致福专属：必须存在负面状态才触发
+                    if desc == "震·震惧致福":
+                        if p.has_negative_status():
+                            p.add_energy(value)
+                            self.log.append(
+                                f"{fmt_name(p)} 在【震·震惧致福】回合内受负面效果，补偿 50 灵气"
+                            )
+                        # 无论触发与否，该事件一次性消耗
+                    else:
+                        # 普通事件直接结算
+                        p.add_energy(value)
+                        if value > 0:
+                            self.log.append(f"{fmt_name(p)} 因【{desc}】获得 {abs(value)} 灵气")
+                        elif value < 0:
+                            self.log.append(f"{fmt_name(p)} 因【{desc}】损失 {abs(value)} 灵气")
                 else:
                     remain.append((turns_left, value, desc))
             p.status["energy_events"] = remain
