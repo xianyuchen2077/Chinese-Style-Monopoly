@@ -48,5 +48,4 @@ def calculate_rent_with_karma(self, base_rent):
 
 在board里面显示回合数
 
-检查所有的add_money和add_energy
-记得加if gain:判断
+业障效果处理

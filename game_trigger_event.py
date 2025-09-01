@@ -18,38 +18,55 @@ class Bagua(Enum):
     DUI  = "兑"
 
 # 八卦灵气值事件表
+# 文件：game_trigger_event.py
 BAGUA_LINGQI_EVENTS: Dict[Bagua, List[dict]] = {
     Bagua.QIAN: [
-        {"name": "云行雨施", "desc": "品物流形", "type": "positive"},
-        {"name": "天道盈虚", "desc": "亢龙有悔之象", "type": "negative"},
+        {"name": "云行雨施",   "desc": "品物流形",               "type": "positive"},
+        {"name": "天道盈虚",   "desc": "亢龙有悔之象",           "type": "negative"},
+        {"name": "飞龙在天",   "desc": "立刻获得5000金币，且下3回合移动步数+2",          "type": "positive"},
+        {"name": "亢龙有悔",   "desc": "接下来3回合内，你的所有技能冷却时间减少1回合（最低为1），但每次使用技能需额外支付1000金币", "type": "negative"},
     ],
     Bagua.KUN: [
-        {"name": "地载万物", "desc": "万物资生", "type": "positive"},
-        {"name": "坤德含章", "desc": "无成有终", "type": "mixed"},
+        {"name": "地载万物",   "desc": "万物资生",               "type": "positive"},
+        {"name": "坤德含章",   "desc": "无成有终",               "type": "mixed"},
+        {"name": "厚德载物",   "desc": "立刻修复自身所有被摧毁的建筑，每修复一个建筑获得1000金币", "type": "positive"},
+        {"name": "含弘光大",   "desc": "立刻使你所有的地皮获得“孕育”状态，持续5回合。期间，这些地皮每次被收取租金时，其建筑等级有10%几率自动提升1级（最高至宫殿）", "type": "mixed"},
     ],
     Bagua.ZHEN: [
-        {"name": "雷出地奋", "desc": "豫卦之象", "type": "positive"},
-        {"name": "震惧致福", "desc": "恐惧修省", "type": "negative"},
+        {"name": "雷出地奋",   "desc": "豫卦之象",               "type": "positive"},
+        {"name": "震惧致福",   "desc": "恐惧修省",               "type": "negative"},
+        {"name": "雷霆万钧",   "desc": "所有其他玩家立刻损失1000金币",                     "type": "neutral"},
+        {"name": "惊雷破茅",   "desc": "立刻使棋盘上所有建筑等级为1的房屋（茅屋）被震塌（等级降为空地）。你是此效果的源头，不受影响", "type": "neutral"},
     ],
     Bagua.XUN: [
-        {"name": "随风赋灵", "desc": "君子以申命行事", "type": "positive"},
-        {"name": "风行灵散", "desc": "无所不入亦无所守", "type": "negative"},
+        {"name": "随风赋灵",   "desc": "君子以申命行事",         "type": "positive"},
+        {"name": "风行灵散",   "desc": "无所不入亦无所守",       "type": "negative"},
+        {"name": "随风巽",     "desc": "立刻与移动方向前方最近的玩家交换位置",               "type": "positive"},
+        {"name": "无孔不入",   "desc": "立刻获得一枚“风行”标记。在接下来的3回合内，你可以无视任何玩家的技能效果（包括控制、破坏、负面状态）一次", "type": "positive"},
     ],
     Bagua.KAN: [
-        {"name": "坎渊悟道", "desc": "维心亨行有尚", "type": "positive"},
-        {"name": "水流灵逝", "desc": "习坎失道", "type": "negative"},
+        {"name": "坎渊悟道",   "desc": "维心亨行有尚",           "type": "positive"},
+        {"name": "水流灵逝",   "desc": "习坎失道",               "type": "negative"},
+        {"name": "坎陷重重",   "desc": "位于你后方3格内的所有其他玩家停止一回合",             "type": "negative"},
+        {"name": "水洊至习坎", "desc": "立刻在你的当前位置召唤一个持续2回合的“险陷”区域。其他玩家移动进入或经过此区域时，有50%几率被困原地1回合", "type": "negative"},
     ],
     Bagua.LI: [
-        {"name": "离明顿悟", "desc": "大人以继明照于四方", "type": "positive"},
-        {"name": "火焚灵耗", "desc": "突如其来如焚如", "type": "negative"},
+        {"name": "离明顿悟",   "desc": "大人以继明照于四方",     "type": "positive"},
+        {"name": "火焚灵耗",   "desc": "突如其来如焚如",         "type": "negative"},
+        {"name": "离明火光",   "desc": "立刻随机升级自身2块地皮的建筑1个等级",               "type": "positive"},
+        {"name": "突如其来如", "desc": "立刻随机选择一名其他玩家，其所有地皮上的建筑等级临时-1（持续3回合），且这些地皮在此期间产生的租金将支付给你", "type": "negative"},
     ],
     Bagua.GEN: [
-        {"name": "艮止凝元", "desc": "君子以思不出其位", "type": "positive"},
-        {"name": "山止灵滞", "desc": "时止则止时行则行", "type": "negative"},
+        {"name": "艮止凝元",   "desc": "君子以思不出其位",       "type": "positive"},
+        {"name": "山止灵滞",   "desc": "时止则止时行则行",       "type": "negative"},
+        {"name": "艮止如山",   "desc": "接下来3次受到的租金或伤害减半",                       "type": "positive"},
+        {"name": "时行则行",   "desc": "立刻进入“蛰伏”状态，持续2回合。期间你无法移动，但免疫所有伤害和负面效果，且每回合自动恢复1000金币和300点灵气值", "type": "positive"},
     ],
     Bagua.DUI: [
-        {"name": "兑言纳灵", "desc": "君子以朋友讲习", "type": "positive"},
-        {"name": "泽涸灵枯", "desc": "孚于剥位正当也", "type": "negative"},
+        {"name": "兑言纳灵",   "desc": "君子以朋友讲习",         "type": "positive"},
+        {"name": "泽涸灵枯",   "desc": "孚于剥位正当也",         "type": "negative"},
+        {"name": "兑言喜悦",   "desc": "你下一个完成的任务，额外获得2点任务分数",               "type": "positive"},
+        {"name": "朋友讲习",   "desc": "立刻选择一名其他玩家，与其结为“盟友”，持续5回合。期间，你们双方共享任务进度（一方完成任务，另一方也视为完成），但任务奖励各自获得一份", "type": "positive"},
     ],
 }
 
@@ -61,7 +78,7 @@ def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
 
     bagua = tile.bagua
     roll = random.random()
-    # 50% 概率二选一
+    # 25% 概率四选一
     if bagua.value == "乾":
         if roll < 0.25:
             _handle_qian_1(game, player)
@@ -72,8 +89,8 @@ def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
         else:
             _handle_qian_4(game, player)
     elif bagua.value == "坤":
-        if roll < 1.1:
-            _handle_kun_4(game, player)
+        if roll < 0.25:
+            _handle_kun_1(game, player)
         elif roll < 0.5:
             _handle_kun_2(game, player)
         elif roll < 0.75:
@@ -81,10 +98,14 @@ def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
         else:
             _handle_kun_4(game, player)
     elif bagua.value == "震":
-        if random.random() < 0.5:
+        if roll < 0.25:
             _handle_zhen_1(game, player)
-        else:
+        elif roll < 0.5:
             _handle_zhen_2(game, player)
+        elif roll < 0.75:
+            _handle_zhen_3(game, player)
+        else:
+            _handle_zhen_4(game, player)
     elif bagua.value == "巽":
         if random.random() < 0.5:
             _handle_xun_1(game, player)
@@ -201,15 +222,11 @@ def _handle_zhen_1(game: Game, player: Player):
     target = game.choose_target_player(player)
     if target:
         target.status["zhen_shocked"] = 1
-        game.log.append(
-            f"{fmt_name(player)} 触发【震·雷出地奋】：获得 400 灵气，"
-            f"并震慑 {fmt_name(target)}，其下次灵气收益减半！"
-        )
+        game.log.append(f"{fmt_name(player)} 触发【震·雷出地奋】：获得 400 灵气，")
+        game.log.append(f"并震慑 {fmt_name(target)}，其下次灵气收益减半！")
     else:
-        game.log.append(
-            f"{fmt_name(player)} 触发【震·雷出地奋】：获得 400 灵气，"
-            f"但无其他玩家可震慑..."
-        )
+        game.log.append(f"{fmt_name(player)} 触发【震·雷出地奋】：获得 400 灵气，")
+        game.log.append(f"但无其他玩家可震慑...")
 
 def _handle_zhen_2(game: Game, player: Player):
     """震惧致福：立刻损失250点灵气值(清零为止)，
@@ -217,12 +234,34 @@ def _handle_zhen_2(game: Game, player: Player):
     lost = min(250, player.energy)
     player.add_energy(-lost)
 
-    for i in range(1, 3):   # 在这个回合就会先-1
-        player.status.setdefault("energy_events", []).append((i * len(game.players), "energy", 50, "震·震惧致福"))
-    game.log.append(
-        f"{fmt_name(player)} 触发【震·震惧致福】：损失 {lost} 灵气，"
-        f"未来 2 回合内每次受负面效果将补偿 50 灵气！"
-    )
+    for i in range(1, 3):
+        player.status.setdefault("energy_events", []).append((i, "energy", 50, "震·震惧致福"))
+    game.log.append(f"{fmt_name(player)} 触发【震·震惧致福】：损失 {lost} 灵气，")
+    game.log.append(f"未来 2 回合内每次受负面效果将补偿 50 灵气！")
+
+def _handle_zhen_3(game: Game, player: Player):
+    """雷霆万钧：所有其他玩家立刻损失1000金币"""
+    for p in game.players:
+        if p is player:
+            game.log.append(f"{fmt_name(player)} 触发【震·雷霆万钧】：使所有其他玩家立刻损失1000金币")
+            continue
+        lost = min(1000, p.money)
+        lost = p.add_money(-lost)
+        game.log.append(f"{fmt_name(player)} 遭受【震·雷霆万钧】：{fmt_name(p)} 损失 {lost} 金币！")
+    game.log.append("【雷霆万钧】效果结束。")
+
+def _handle_zhen_4(game: Game, player: Player):
+    """惊雷破茅：所有建筑等级为1（茅屋）的房屋被震塌"""
+    destroyed = 0
+    for tile in game.board.tiles:
+        if tile.level == BuildingLevel.HUT:
+            tile.level = BuildingLevel.EMPTY
+            if tile.owner is not None:
+                tile.owner.destroyed_tiles.add(tile.idx)
+            destroyed += 1
+            game.log.append(f"{fmt_name(player)} 触发【震·惊雷破茅】：{fmt_name(tile.owner)} 的「{tile.name}」被震塌！")
+    if destroyed == 0:
+        game.log.append("【惊雷破茅】触发，但当前没有茅屋可震塌。")
 
 # ---------- 巽卦专用处理 ----------
 def _handle_xun_1(game: Game, player: Player):

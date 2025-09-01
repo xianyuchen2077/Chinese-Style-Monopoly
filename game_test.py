@@ -216,7 +216,7 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
     ui_instance.test_mode = True
 
     # 1) 新建单玩家游戏
-    game = Game(["测试玩家", "NPC"], ["鼠", "牛"])
+    game = Game(["测试玩家", "NPC", "NPC2"], ["鼠", "牛", "兔"])
     player = game.players[0]
     player.game = game
     player.position = 0
@@ -227,11 +227,12 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
         tile.level = BuildingLevel.HUT        # 先统一设成茅屋，也可根据需要改
         player.properties.append(idx)
 
-    if bagua_char == "坎":
+    if bagua_char == "震" or bagua_char == "坎":
         # 给主角加两个负面效果，方便测试
-        player.status["skip_turns"] = 2          # 禁足 2 回合
+        player.status["no_money_this_turn"] = 2  # 鄙啬 2 回合
         player.status["karma"] = 2               # 业障 2 回合
-        game.log.append("【测试】已为测试玩家添加 skip_turns、karma 两种负面状态")
+        game.log.append("【测试】已为测试玩家添加 鄙啬、业障 两种负面状态")
+
     elif bagua_char == "离":
         # 把所有可升级技能升到 III 级
         for sk in player.skill_mgr.skills.values():
@@ -245,6 +246,14 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
     player_npc.game = game
     player_npc.position = 34
     player_npc.energy = 200
+    player_npc.money = 15000
+
+    if bagua_char == "震":
+        player_npc_2 = game.players[2]
+        player_npc_2.game = game
+        player_npc_2.position = 10
+        player_npc_2.energy = 500
+        player_npc_2.money = 20000
 
     # 2) 把 1 号格固定为指定八卦
     target_idx = 1
