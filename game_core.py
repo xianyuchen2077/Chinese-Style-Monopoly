@@ -55,13 +55,14 @@ SKILL_NAMES = {
 # 所有负面效果
 class Negative(Enum):
     """所有负面状态"""
-    SKIP_TURNS   = "skip_turns"
+    SKIP_TURNS   = "skip_turns"                 # 跳过本回合
     KARMA        = "karma"
     SHU_CONTROL  = "shu_control"
     FIRE_DEBUFF  = "fire_debuff"
     ZHEN_SHOCKED = "zhen_shocked"
     LI_SKILL_DOWNGRADE = "li_skill_downgrade"
-    NO_MONEY_THIS_TURN = "no_money_this_turn"
+    NO_MONEY_THIS_TURN = "no_money_this_turn"   # 本回合不会有经济收益
+    DEFENCE_SKILL_ONCE = "defence_skill_once"   # 免疫技能一次
 
 # 统一日志玩家名称
 def fmt_name(player, tag: str = "") -> str:
@@ -217,8 +218,13 @@ class SkillManager:
         turns = 2 if level == SkillLevel.III else 1 # 只有III级可以操控两个回合
         lock_skill = level != SkillLevel.I          # 技能等级II级以上能够封锁技能
 
+        names = ",".join(fmt_name(p) for p in target_list)
+
         # 支持多目标
         for target in target_list:
+            assert isinstance(target, Player)
+            if not target.can_be_skill_targeted():
+                return False, f"{self.player.name} 无法对 [{names}] 发动【灵鼠窃运】"
             if direction == 'backward':     # 反向
                 target.clockwise = not target.clockwise
             elif direction == 'stay':       # 原地停留
@@ -233,7 +239,6 @@ class SkillManager:
         self.set_skill_cooldown()
         skill['used'] += 1
 
-        names = ",".join(fmt_name(p) for p in target_list)
         return True, f"{self.player.name} 对 [{names}] 发动【灵鼠窃运】"
 
     def upgrade_shu(self):
@@ -640,15 +645,6 @@ class Player:
         """
         统一给玩家增减金币。
         """
-
-        # if self.status.pop("zhen_shocked", 0):
-        #     if amount > 0:
-        #         actual = amount // 2
-        #         if self.game is not None and hasattr(self.game, "log"):
-        #             self.game.log.append(f"{fmt_name(self)} 被【震慑】，本次灵气收益减半：{actual}（原{amount}）")
-        #     else:
-        #         actual = amount
-        # else:
         actual = amount
         if actual > 0 and self.no_money_this_turn:
             actual = 0
@@ -678,8 +674,20 @@ class Player:
             return actual
 
     def has_negative_status(self) -> bool:
-            """只要存在任何一个负面状态就返回 True"""
-            return any(ns.value in self.status for ns in Negative)
+        """只要存在任何一个负面状态就返回 True"""
+        return any(ns.value in self.status for ns in Negative)
+
+    def can_be_skill_targeted(self) -> bool:
+        """是否可以被选为技能目标"""
+        # 免疫一次技能选定（【巽·无孔不入】）
+        if self.status.get("defence_skill_once", None):
+            if self.status["defence_skill_once"] == 1:  # 为什么要这么分类讨论，因为这样可以有效避免 defence_skill_once 最后始终等于 1 的“赛博鬼打墙”
+                self.status.pop("defence_skill_once", None)
+                return False
+            elif self.status["defence_skill_once"] > 0:
+                return False
+
+        return True
 
     def move_step(self, steps):
         """返回最终步数（含方向）"""
@@ -719,17 +727,15 @@ class Player:
                 if desc == "乾·飞龙在天":
                     steps += value
                     if self.game is not None and hasattr(self.game, "log"):
-                        self.game.log.append(f"{fmt_name(self)} 因【飞龙在天】移动额外 +2 步！")
+                        self.game.log.append(f"{fmt_name(self)} 因【乾·飞龙在天】移动额外 +2 步！")
+                elif desc == "巽·风行灵散":
+                    steps += value
+                    if self.game is not None and hasattr(self.game, "log"):
+                        self.game.log.append(f"{fmt_name(self)} 因【巽·风行灵散】移动额外 +3 步！")
             else:
                 remain.append((turns_left, type, *payload))
         # 重新写回玩家状态
         self.status["energy_events"] = remain
-
-        # 巽·风行灵散
-        if self.status.pop("xun_speed", 0):
-            steps += 3
-            if self.game is not None and hasattr(self.game, "log"):
-                self.game.log.append(f"{fmt_name(self)} 因【风行灵散】移动额外 +3 步！")
 
         # 5. 正常方向移动（使用玩家当前的clockwise状态）
         return steps if self.clockwise else -steps
@@ -1078,9 +1084,7 @@ class Game:
                     if desc == "震·震惧致福":
                         if p.has_negative_status():
                             p.add_energy(value)
-                            self.log.append(
-                                f"{fmt_name(p)} 在【震·震惧致福】回合内受负面效果，补偿 50 灵气"
-                            )
+                            self.log.append(f"{fmt_name(p)} 在【震·震惧致福】回合内受负面效果，补偿 50 灵气")
                         # 无论触发与否，该事件一次性消耗
                     else:
                         # 普通事件直接结算
@@ -1107,6 +1111,18 @@ class Game:
                 # 和移动相关的事件
                 elif type == "move":
                     remain.append((turns_left, type, *payload)) # 留到Player.move_step里面统一pop
+                # 和防御免疫相关的事件
+                elif type == "defence":
+                    value, desc = payload
+                    if desc == "巽·无孔不入":
+                        cnt = p.status.pop("defence_skill_once", 0)   # 取出并减 1
+                        if cnt > 0:
+                            p.status["defence_skill_once"] = cnt - 1
+                        else:
+                            p.status.pop("defence_skill_once", None)
+                        self.log.append(f"{fmt_name(p)} 本回合仍受到【风行】庇护")  # 留个日志象征性输出一下
+                else:
+                    remain.append((turns_left, type, *payload))
             else:
                 remain.append((turns_left, type, *payload))
 

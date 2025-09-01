@@ -1829,12 +1829,14 @@ class GameUI:
                     btn = getattr(self, f'_shu_dir_btn_{key}', None)
                     if btn and btn.collidepoint(pos):
                         ok, msg = cur.skill_mgr.use_shu([self.shu_target], key)
-                        # 立即追加详细日志
-                        direction_text = "反向移动" if key == 'backward' else "原地停留一回合"
-                        self.log.append(
-                            f"{fmt_name(cur)} 对 {fmt_name(self.shu_target)} 发动【灵鼠窃运】："
-                            f"强制其{direction_text}"
-                        )
+
+                        # 把游戏日志同步到 UI 日志
+                        self.log.append(msg)
+
+                        if ok:
+                            # 立即追加详细日志
+                            direction_text = "反向移动" if key == 'backward' else "原地停留一回合"
+                            self.log.append(f"强制其{direction_text}")
                         self._scroll_to_bottom()
                         # 关闭弹窗，刷新界面
                         self.active_modal = None

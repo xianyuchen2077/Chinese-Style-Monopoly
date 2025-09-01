@@ -107,10 +107,14 @@ def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
         else:
             _handle_zhen_4(game, player)
     elif bagua.value == "巽":
-        if random.random() < 0.5:
+        if roll < 0.25:
             _handle_xun_1(game, player)
-        else:
+        elif roll < 0.5:
             _handle_xun_2(game, player)
+        elif roll < 0.75:
+            _handle_xun_3(game, player)
+        else:
+            _handle_xun_4(game, player)
     elif bagua.value == "坎":
         if random.random() < 0.5:
             _handle_kan_1(game, player)
@@ -265,24 +269,50 @@ def _handle_zhen_4(game: Game, player: Player):
 
 # ---------- 巽卦专用处理 ----------
 def _handle_xun_1(game: Game, player: Player):
-    # 找灵气最高的玩家
+    """巽·随风赋灵：复制灵气值最高的其他玩家的 20% 的灵气值"""
+    # 找灵气最高的其他玩家
     candidates = [p for p in game.players if p != player and p.energy > 0]
     if not candidates:
         game.log.append(f"{fmt_name(player)} 触发【巽·随风赋灵】：无其他玩家可汲取灵气。")
         return
     richest = max(candidates, key=lambda p: p.energy)
     gain = richest.energy // 5
-    player.add_energy(gain)
+    gain = player.add_energy(gain)
     game.log.append(f"{fmt_name(player)} 触发【巽·随风赋灵】：复制 {fmt_name(richest)} 20% 灵气，获得 {gain}！")
 
 def _handle_xun_2(game: Game, player: Player):
+    """巽·风行灵散：立刻损失当前灵气值的 25%（向下取整），但下次移动步数+3"""
     lost = player.energy // 4
-    player.add_energy(-lost)
-    player.status["xun_speed"] = 1   # 仅影响下回合
-    game.log.append(
-        f"{fmt_name(player)} 触发【巽·风行灵散】：损失 {lost} 灵气，"
-        f"但下回合移动额外 +3 步！" # 参考乾3
-    )
+    lost = -player.add_energy(-lost)
+    game.log.append(f"{fmt_name(player)} 触发【巽·风行灵散巽·风行灵散】：损失 {lost} 灵气，")
+    player.status.setdefault("energy_events", []).append((1, "move", 3, "巽·风行灵散")) # 仅影响下回合
+    game.log.append(f"但下次移动额外 +3 步！")
+
+def _handle_xun_3(game: Game, player: Player):
+    """随风巽：立刻与移动方向前方最近的玩家交换位置"""
+    board_len = len(game.board.tiles)
+    step = 1 if player.clockwise else -1
+    current = player.position
+
+    # 向前搜索最近的其他玩家
+    for offset in range(1, board_len):
+        idx = (current + offset * step) % board_len
+        target = next((p for p in game.players if p.position == idx), None)
+        if target is not None and target is not player:
+            # 交换位置
+            player.position, target.position = target.position, player.position
+            game.log.append(f"{fmt_name(player)} 触发【巽·随风巽】：与前方最近的玩家 {fmt_name(target)} 交换位置！")
+            return
+
+    game.log.append(f"{fmt_name(player)} 触发【巽·随风巽】：前方没有其他玩家，位置不变。")
+
+def _handle_xun_4(game: Game, player: Player):
+    """无孔不入：立刻获得一枚“风行”标记，3 回合内可无视一次任何玩家技能效果"""
+    player.status["defence_skill_once"] = 3      # 持续 3 大回合
+    for i in range(1, 3):   # 从这个回合就开始，所以需要 -1
+        player.status.setdefault("energy_events", []).append((i, "defence", 1, "巽·无孔不入"))
+    game.log.append(f"{fmt_name(player)} 触发【巽·无孔不入】：获得“风行”标记，")
+    game.log.append(f"未来 3 回合内可无视一次任何玩家技能效果！")
 
 # ---------- 坎卦专用处理 ----------
 def _handle_kan_1(game: Game, player: Player):
