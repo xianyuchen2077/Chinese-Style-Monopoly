@@ -61,6 +61,7 @@ class Negative(Enum):
     FIRE_DEBUFF  = "fire_debuff"
     ZHEN_SHOCKED = "zhen_shocked"
     LI_SKILL_DOWNGRADE = "li_skill_downgrade"
+    NO_MONEY_THIS_TURN = "no_money_this_turn"
 
 # 统一日志玩家名称
 def fmt_name(player, tag: str = "") -> str:
@@ -617,11 +618,13 @@ class Player:
         self.zodiac = zodiac
         self.is_ai = is_ai
         self.money = 10000       # 初始资金
+        self.no_money_this_turn = False     # 本回合不能获得任何金币
         self.energy = 100        # 初始灵气
         self._pending_return: list[tuple[int, int]] = []  # (剩余回合, 金额/灵气)
         self.position = 0
         self.score = 0
         self.properties = []
+        self.destroyed_tiles: set[int] = set()   # 曾被破坏的地皮索引
         self.status = {}
         self.status.setdefault("energy_events", [])   # [(剩余回合, 数值, 描述)]
         self.cooldowns = {}
@@ -637,6 +640,7 @@ class Player:
         """
         统一给玩家增减金币。
         """
+
         # if self.status.pop("zhen_shocked", 0):
         #     if amount > 0:
         #         actual = amount // 2
@@ -646,8 +650,14 @@ class Player:
         #         actual = amount
         # else:
         actual = amount
+        if actual > 0 and self.no_money_this_turn:
+            actual = 0
+            self.no_money_this_turn = False
+            self.status.pop("no_money_this_turn", 0)
+            if self.game is not None and hasattr(self.game, "log"):
+                self.game.log.append(f"{fmt_name(self)} 陷入【鄙吝】状态，本回合无法获得任何金币")
 
-        self.energy += actual
+        self.money += actual
         return actual
 
     def add_energy(self, amount: int) -> int:
@@ -1030,6 +1040,15 @@ class Game:
         # 八卦灵气值奇遇结算
         # 只处理当前回合玩家的状态
         p = self.players[self.current_player_idx]
+        # 处理【坤·含弘光大】
+        left = p.status.get("kun_pregnancy", 0)
+        if left > 0:
+            left -= 1
+            if left == 0:
+                p.status.pop("kun_pregnancy", None)
+                self.log.append(f"{fmt_name(p)} 的【坤·含弘光大】孕育状态结束")
+            else:
+                p.status["kun_pregnancy"] = left
         # 处理【艮·山止灵滞】
         left = p.status.get("gen_no_energy_gain", 0)
         if left > 0:
@@ -1070,6 +1089,11 @@ class Game:
                             self.log.append(f"{fmt_name(p)} 因【{desc}】获得 {abs(value)} 灵气")
                         elif value < 0:
                             self.log.append(f"{fmt_name(p)} 因【{desc}】损失 {abs(value)} 灵气")
+                # 和金币相关的事件
+                elif type == "money":
+                    value, desc = payload
+                    if desc == "坤·坤德含章":
+                        p.no_money_this_turn = True
                 # 和技能相关的事件
                 elif type == "skill":
                     zodiac, original_level, desc = payload
@@ -1080,6 +1104,7 @@ class Game:
                         self.log.append(f"{fmt_name(p)} 的【{SKILL_NAMES[zodiac]}】等级已恢复至 {original_level.name}！")
                     elif desc == "兑·泽涸灵枯":
                         p.status.pop("兑·泽涸灵枯", None)
+                # 和移动相关的事件
                 elif type == "move":
                     remain.append((turns_left, type, *payload)) # 留到Player.move_step里面统一pop
             else:
@@ -1121,6 +1146,7 @@ class Game:
                     old = tile.level.value
                     new = max(0, old - damage)
                     tile.level = BuildingLevel(new)
+                    tile.owner.destroyed_tiles.add(tile_idx)
                     destroyed.append({
                         'name': tile.name,
                         'owner': tile.owner,
@@ -1136,6 +1162,7 @@ class Game:
                 if random.random() < chance and end_tile.level.value > 0:
                     old = end_tile.level.value
                     end_tile.level = BuildingLevel.EMPTY
+                    end_tile.owner.destroyed_tiles.add(path_tiles[-1])
                     destroyed.append({
                         'name': end_tile.name,
                         'owner': end_tile.owner,
@@ -1178,8 +1205,9 @@ class Game:
             # 五行奇遇
             e = tile.element
             if e == Element.GOLD:
-                player.money += 3000
-                self.log.append(f'{fmt_name(player)} 点石成金，获得3000金币！')
+                gain = player.add_money(3000)
+                if gain:
+                    self.log.append(f'{fmt_name(player)} 点石成金，获得3000金币！')
             elif e == Element.WOOD:
                 removed = False
                 if player.status:
@@ -1302,6 +1330,14 @@ class Game:
         base_price = tile.price
         owner = tile.owner
 
+        # 坤·含弘光大：孕育状态触发升级
+        if (owner is not None and owner.status.get("kun_pregnancy", 0) > 0 and tile.level != BuildingLevel.PALACE):
+            if random.random() < 0.1:
+                old_lv = tile.level
+                tile.level = BuildingLevel(tile.level.value + 1)
+                self.log.append(f"【孕育】{fmt_name(tile.owner)} 的【{tile.name}】")
+                self.log.append(f"由 【{old_lv.name}】 升为 【{tile.level.name}】")
+
         # 基础租金倍数
         rent_multipliers = {
             BuildingLevel.EMPTY: 0.25,
@@ -1359,6 +1395,7 @@ class Game:
                 if tile.level.value > 0:
                     old_level = tile.level
                     tile.level = BuildingLevel(tile.level.value - 1)
+                    tile.owner.destroyed_tiles.add(tile.idx)
                     self.log.append(
                         f"【火灾】{fmt_name(tile.owner)} 的「{tile.name}」"
                         f"从 {old_level.name} 降为 {tile.level.name}"

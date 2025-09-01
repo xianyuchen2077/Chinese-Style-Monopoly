@@ -13,6 +13,7 @@ def trigger_test_encounter(game, player, tile):
         # 模拟洪水奇遇，逐级降建筑但不摧毁地皮
         if tile.level.value > 0:
             tile.level = BuildingLevel(tile.level.value - 1)
+            tile.owner.destroyed_tiles.add(tile.idx)
             game.log.append(f"【测试-洪水】摧毁 {fmt_name(tile.owner)} 的「{tile.name}」，建筑降为 {tile.level.name}")
         else:
             game.log.append(f"【测试-洪水】无效果：「{tile.name}」已是空地")
@@ -32,6 +33,7 @@ def trigger_test_encounter(game, player, tile):
             # 记录当前建筑等级用于日志
             old_level = tile.level.name
             tile.level = BuildingLevel.EMPTY
+            tile.owner.destroyed_tiles.add(tile.idx)
             game.log.append(f"【测试-地震】摧毁 {fmt_name(tile.owner)} 的「{tile.name}」，建筑直接摧毁至空地")
         else:
             game.log.append(f"【测试-地震】无效果：「{tile.name}」已是空地")
@@ -259,6 +261,20 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
     game.board.bagua_tiles[35] = Bagua("乾")  # 同步到 board.bagua_tiles，让 UI 能渲染
     tile_2.element = Element.GOLD  # 随意给一个五行，不影响测试
     tile_2.price = 1000
+
+    if bagua_char == "坤":
+        tile_3 = game.board.tiles[2]
+        tile_3.special = "buff_bagua"
+        tile_3.element = Element.GOLD
+        tile_3.price = 1000
+
+        # 破坏 26 号地皮
+        tile_4 = game.board.tiles[26]
+        tile_4.element = Element.EARTH
+        trigger_test_encounter(game, player, tile_4)
+
+        # 把NPC放在 25 号地皮前一格，方便测试收租
+        player_npc.position = 24
 
     # 3) 固定骰点 1 → 正好走到 1 号格
     ui_instance.test_dice = 1

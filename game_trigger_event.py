@@ -3,7 +3,7 @@
 
 import random
 from typing import Dict, List
-from game_core import fmt_name, Game, Player, Tile, SkillLevel, Negative, SKILL_NAMES
+from game_core import fmt_name, Game, Player, Tile, SkillLevel, Negative, SKILL_NAMES, BuildingLevel
 from enum import Enum
 
 # 八卦枚举
@@ -72,10 +72,14 @@ def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
         else:
             _handle_qian_4(game, player)
     elif bagua.value == "坤":
-        if random.random() < 0.5:
-            _handle_kun_1(game, player)
-        else:
+        if roll < 1.1:
+            _handle_kun_4(game, player)
+        elif roll < 0.5:
             _handle_kun_2(game, player)
+        elif roll < 0.75:
+            _handle_kun_3(game, player)
+        else:
+            _handle_kun_4(game, player)
     elif bagua.value == "震":
         if random.random() < 0.5:
             _handle_zhen_1(game, player)
@@ -150,16 +154,43 @@ def _handle_kun_1(game: Game, player: Player):
     """地载万物：立刻获得 (地皮数量 × 50) 灵气"""
     tiles_owned = len(player.properties)
     gain = tiles_owned * 50
-    player.add_energy(gain)
+    gain = player.add_energy(gain)
     game.log.append(f"{fmt_name(player)} 触发【坤·地载万物】：拥有 {tiles_owned} 块地皮，获得 {gain} 灵气！")
 
 def _handle_kun_2(game: Game, player: Player):
-    """坤德含章：将当前金币的10%转化为灵气"""
-    convert = int(player.money * 0.1)
-    player.add_energy(convert)
-    player.money -= convert
-    player.status["kun_no_money_gain"] = 1  # 标记本回合无法获得金币
-    game.log.append(f"{fmt_name(player)} 触发【坤·坤德含章】：消耗 {convert} 金币，转化为 {convert} 灵气！")
+    """坤德含章：将当前金币的5%转化为灵气"""
+    convert = int(player.money * 0.05)
+    gain = player.add_energy(convert)
+    player.add_money(-convert)
+    player.status["no_money_this_turn"] = 1
+    player.status.setdefault("energy_events", []).append((1, "money", 1, "坤·坤德含章"))    # 标记下回合无法获得金币
+    game.log.append(f"{fmt_name(player)} 触发【坤·坤德含章】：消耗 {gain} 金币，转化为 {gain} 灵气！")
+
+def _handle_kun_3(game: Game, player: Player):
+    """厚德载物：立刻修复自身所有被摧毁（曾经有过房子而如今变成空地）的建筑，每修复一个建筑获得1000金币"""
+    to_fix = list(player.destroyed_tiles)   # 先拷贝1，避免在遍历集合的同时又修改集合
+    repaired = 0
+
+    for idx in player.properties and to_fix:
+        tile = game.board.tiles[idx]
+        if tile.level == BuildingLevel.EMPTY and tile.owner == player:
+            tile.level = BuildingLevel.HUT
+            player.destroyed_tiles.discard(idx)  # 移出“被破坏”集合
+            repaired += 1
+            game.log.append(f"{fmt_name(player)} 触发【坤·厚德载物】：修复【{tile.name}】至茅屋")
+
+    if repaired:
+        gain = repaired * 1000
+        gain = player.add_money(gain)
+        game.log.append(f"{fmt_name(player)} 因修复 {repaired} 个建筑，获得 {gain} 金币！")
+    else:
+        game.log.append(f"{fmt_name(player)} 触发【坤·厚德载物】：无建筑需要修复")
+
+def _handle_kun_4(game: Game, player: Player):
+    """含弘光大：使所有地皮进入孕育状态，持续5回合，期间被收租时10%概率升1级"""
+    player.status["kun_pregnancy"] = 5  # 立即生效，持续5个大回合
+    game.log.append(f"{fmt_name(player)} 触发【坤·含弘光大】：")
+    game.log.append(f"所有地皮进入孕育状态，持续5个大回合，被收租时10%几率升级！")
 
 # ---------- 震卦专用处理 ----------
 def _handle_zhen_1(game: Game, player: Player):

@@ -45,6 +45,8 @@ def calculate_rent_with_karma(self, base_rent):
 想一想人物的信息格子应该怎么处理
 
 目前有一个大问题，独立回合数和大回合数搞混了（而且由于 寅虎 的存在，两者的关系会变得复杂）
-在灵气值奇遇中需要用到大回合数（未修改）
 
 在board里面显示回合数
+
+检查所有的add_money和add_energy
+记得加if gain:判断
