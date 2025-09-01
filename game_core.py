@@ -128,6 +128,7 @@ class SkillManager:
     """每个玩家自带一个实例，负责冷却、升级与触发"""
     def __init__(self, player):
         self.player = player
+        self.cooldown_buff = 0
         self.skills = {
             '鼠': SKILL_SHU.copy(),
             '牛': SKILL_NIU.copy(),
@@ -144,6 +145,38 @@ class SkillManager:
         if z in self.skills:
             return self.skills[z]['cooldown'] == 0
         return False
+
+    def set_skill_cooldown(self):
+        z = self.player.zodiac
+        skill = self.skills[z]
+        level = skill['level']
+        if z == '鼠':
+            skill['cooldown'] = 4 if level == SkillLevel.III else 3
+        elif z == '牛':
+            skill['cooldown'] = 3
+        elif z == '虎':
+            skill['cooldown'] = 4 if level == SkillLevel.III else 3
+        elif z == '兔':
+            skill['cooldown'] = 3
+        elif z == '龙':
+            pass
+        elif z == '蛇':
+            pass
+        elif z == '马':
+            pass                        # 被动技能，无冷却
+        elif z == '羊':
+            skill['cooldown'] = 5
+        elif z == '猴':
+            pass
+        elif z == '鸡':
+            skill['cooldown'] = 3
+        elif z == '狗':
+            pass                        # 被动技能，无冷却
+        elif z == '猪':
+            skill['cooldown'] = 2
+
+        # 考虑cooldown_buff的增、减益效果
+        skill['cooldown'] += self.cooldown_buff
 
     # ------------- 统一外部调用接口 ----------------
     def use_active_skill(self, target_list=None, option=None, game=None):
@@ -196,7 +229,7 @@ class SkillManager:
                 target.can_move = False
 
         # 技能冷却
-        skill['cooldown'] = 4 if level == SkillLevel.III else 3
+        self.set_skill_cooldown()
         skill['used'] += 1
 
         names = ",".join(fmt_name(p) for p in target_list)
@@ -244,7 +277,7 @@ class SkillManager:
             self.player.status['karma'] = 1
         # III级无业障
 
-        skill['cooldown'] = 3
+        self.set_skill_cooldown()
         skill['used'] += 1
 
         return True, f"{fmt_name(self.player)} 发动【蛮牛冲撞】，横冲直撞破坏沿途建筑！"
@@ -290,7 +323,7 @@ class SkillManager:
 
         # 生成两个独立子回合
         game.tiger_sub_turns = [(self.player, "clone")]
-        skill['cooldown'] = 4 if level == SkillLevel.III else 3
+        self.set_skill_cooldown()
         skill['split_turns'] = 2 if level == SkillLevel.I else 3
         skill['used'] += 1
         skill['clone_position'] = self.player.position
@@ -354,8 +387,8 @@ class SkillManager:
         if skill['cooldown'] > 0:
             return False, "【玉兔疾行】冷却中"
         skill['active'] = True
-        skill['cooldown'] = 3
         skill['used'] += 1
+        self.set_skill_cooldown()
         return True, f"{self.player.name} 发动【玉兔疾行】加速{skill['multiplier']}倍"
 
     def upgrade_tu(self):
@@ -381,7 +414,7 @@ class SkillManager:
             self.player.position = skill['soul_pos']
             skill['soul_pos'] = None
             skill['soul_turns'] = 0
-            skill['cooldown'] = 5
+            self.set_skill_cooldown()
             return True, f"{fmt_name(self.player)} 灵魂归位，本体传送到 {self.player.position} 格"
 
         # 2. 灵魂出窍（仅标记）
@@ -531,7 +564,7 @@ class SkillManager:
 
         # 执行飞行
         self.player.position = to_idx
-        skill['cooldown'] = 3
+        self.set_skill_cooldown()
         skill['used'] += 1
 
         # III 级奖励
@@ -600,6 +633,23 @@ class Player:
         self.game: Optional["Game"] = None
         self.clone_idx: Optional[int] = None   # 分身棋子的格子序号
 
+    def add_money(self, amount: int) -> int:
+        """
+        统一给玩家增减金币。
+        """
+        # if self.status.pop("zhen_shocked", 0):
+        #     if amount > 0:
+        #         actual = amount // 2
+        #         if self.game is not None and hasattr(self.game, "log"):
+        #             self.game.log.append(f"{fmt_name(self)} 被【震慑】，本次灵气收益减半：{actual}（原{amount}）")
+        #     else:
+        #         actual = amount
+        # else:
+        actual = amount
+
+        self.energy += actual
+        return actual
+
     def add_energy(self, amount: int) -> int:
             """
             统一给玩家增减灵气。
@@ -650,6 +700,20 @@ class Player:
             if skill['soul_pos'] is not None:
                 # 灵魂移动由外部调用move_soul处理
                 return 0    # 本体不动，灵魂单独走
+
+        remain = []
+        for evt in self.status.get("energy_events", []):
+            turns_left, type, *payload = evt
+            if turns_left <= 0 and type == "move":
+                value, desc = payload
+                if desc == "乾·飞龙在天":
+                    steps += value
+                    if self.game is not None and hasattr(self.game, "log"):
+                        self.game.log.append(f"{fmt_name(self)} 因【飞龙在天】移动额外 +2 步！")
+            else:
+                remain.append((turns_left, type, *payload))
+        # 重新写回玩家状态
+        self.status["energy_events"] = remain
 
         # 巽·风行灵散
         if self.status.pop("xun_speed", 0):
@@ -964,55 +1028,65 @@ class Game:
         self.log.append(f'轮到 {fmt_name(new_current)}')
 
         # 八卦灵气值奇遇结算
-        for p in self.players:
-            left = p.status.get("gen_no_energy_gain", 0)
-            if left > 0:
-                left -= 1
-                if left == 0:
-                    p.status.pop("gen_no_energy_gain", None)
-                else:
-                    p.status["gen_no_energy_gain"] = left
-                # 清空本回合所有灵气事件
-                p.status.pop("energy", None)  # 仅过滤掉 energy 类型
-                self.log.append(f"{fmt_name(p)} 受【山止灵滞】影响，本回合无法获得灵气。")
+        # 只处理当前回合玩家的状态
+        p = self.players[self.current_player_idx]
+        # 处理【艮·山止灵滞】
+        left = p.status.get("gen_no_energy_gain", 0)
+        if left > 0:
+            left -= 1
+            if left == 0:
+                p.status.pop("gen_no_energy_gain", None)
+            else:
+                p.status["gen_no_energy_gain"] = left
+            self.log.append(f"{fmt_name(p)} 受【山止灵滞】影响，本回合无法获得灵气。")
 
-            remain = []
-            for evt in p.status.get("energy_events", []):
-                turns_left, type, *payload = evt
-                turns_left -= 1
-                if turns_left <= 0:
-                    # 和灵气值相关的事件
-                    if type == "energy":
-                        value, desc = payload
-                        # 震·震惧致福专属：必须存在负面状态才触发
-                        if desc == "震·震惧致福":
-                            if p.has_negative_status():
-                                p.add_energy(value)
-                                self.log.append(
-                                    f"{fmt_name(p)} 在【震·震惧致福】回合内受负面效果，补偿 50 灵气"
-                                )
-                            # 无论触发与否，该事件一次性消耗
-                        else:
-                            # 普通事件直接结算
+        remain = []
+        for evt in p.status.get("energy_events", []):
+            turns_left, type, *payload = evt
+            turns_left -= 1
+
+            # 如果受【山止灵滞】影响，则跳过所有 energy 类型事件
+            if left > 0 and type == "energy":
+                # 本轮不触发，重新放回
+                remain.append((turns_left, type, *payload))
+                continue
+
+            if turns_left <= 0:
+                # 和灵气值相关的事件
+                if type == "energy":
+                    value, desc = payload
+                    # 震·震惧致福专属：必须存在负面状态才触发
+                    if desc == "震·震惧致福":
+                        if p.has_negative_status():
                             p.add_energy(value)
-                            if value > 0:
-                                self.log.append(f"{fmt_name(p)} 因【{desc}】获得 {abs(value)} 灵气")
-                            elif value < 0:
-                                self.log.append(f"{fmt_name(p)} 因【{desc}】损失 {abs(value)} 灵气")
-                    # 和技能相关的事件
-                    elif type == "skill":
-                        zodiac, original_level, desc = payload
-                        if desc == "离·火焚灵耗":
-                            p.skill_mgr.skills[zodiac]['level'] = original_level
-                            self.log.append(f"{fmt_name(p)} 的【{SKILL_NAMES[zodiac]}】等级已恢复至 {original_level.name}！")
-                        elif desc == "兑·泽涸灵枯":
-                            p.status.pop("兑·泽涸灵枯", None)
-                else:
-                    remain.append((turns_left, type, *payload))
+                            self.log.append(
+                                f"{fmt_name(p)} 在【震·震惧致福】回合内受负面效果，补偿 50 灵气"
+                            )
+                        # 无论触发与否，该事件一次性消耗
+                    else:
+                        # 普通事件直接结算
+                        p.add_energy(value)
+                        if value > 0:
+                            self.log.append(f"{fmt_name(p)} 因【{desc}】获得 {abs(value)} 灵气")
+                        elif value < 0:
+                            self.log.append(f"{fmt_name(p)} 因【{desc}】损失 {abs(value)} 灵气")
+                # 和技能相关的事件
+                elif type == "skill":
+                    zodiac, original_level, desc = payload
+                    if desc == "乾·亢龙有悔":
+                        p.skill_mgr.cooldown_buff = -1
+                    elif desc == "离·火焚灵耗":
+                        p.skill_mgr.skills[zodiac]['level'] = original_level
+                        self.log.append(f"{fmt_name(p)} 的【{SKILL_NAMES[zodiac]}】等级已恢复至 {original_level.name}！")
+                    elif desc == "兑·泽涸灵枯":
+                        p.status.pop("兑·泽涸灵枯", None)
+                elif type == "move":
+                    remain.append((turns_left, type, *payload)) # 留到Player.move_step里面统一pop
+            else:
+                remain.append((turns_left, type, *payload))
 
-            # 重新写回玩家状态
-            if remain:
-                p.status["energy_events"] = remain
+        # 重新写回玩家状态
+        p.status["energy_events"] = remain
 
     def player_properties(self, player):
         """返回该玩家拥有的所有地皮对象"""

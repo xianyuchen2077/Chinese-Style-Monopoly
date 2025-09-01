@@ -60,12 +60,17 @@ def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
         return
 
     bagua = tile.bagua
+    roll = random.random()
     # 50% 概率二选一
     if bagua.value == "乾":
-        if random.random() < 0.5:
+        if roll < 0.25:
             _handle_qian_1(game, player)
-        else:
+        elif roll < 0.5:
             _handle_qian_2(game, player)
+        elif roll < 0.75:
+            _handle_qian_3(game, player)
+        else:
+            _handle_qian_4(game, player)
     elif bagua.value == "坤":
         if random.random() < 0.5:
             _handle_kun_1(game, player)
@@ -110,7 +115,7 @@ def _handle_qian_1(game: Game, player: Player):
     game.log.append(f"{fmt_name(player)} 触发【乾·云行雨施】：立刻获得 {gain} 灵气！")
     # 后续 3 回合
     for i in range(1, 4):
-        player.status.setdefault("energy_events", []).append((i * len(game.players), "energy", 100, "乾·云行雨施"))
+        player.status.setdefault("energy_events", []).append((i , "energy", 100, "乾·云行雨施"))
     game.log.append(f"后续 3 回合每回合返还 100 灵气")
 
 def _handle_qian_2(game: Game, player: Player):
@@ -120,8 +125,25 @@ def _handle_qian_2(game: Game, player: Player):
     game.log.append(f"{fmt_name(player)} 触发【乾·天道盈虚】：灵气清零（损失 {lost} 点）！")
     # 3 回合后返还 50%
     refund = lost // 2
-    player.status.setdefault("energy_events", []).append((4 * len(game.players), "energy", refund, "乾·天道盈虚"))     # 这里是4，因为在这个回合还会-1
+    player.status.setdefault("energy_events", []).append((3, "energy", refund, "乾·天道盈虚"))
     game.log.append(f"3 个回合后将返还 {refund} 灵气")
+
+def _handle_qian_3(game: Game, player: Player):
+    """飞龙在天：立刻获得5000金币，且下3回合移动步数+2"""
+    gain = player.add_money(5000)
+    game.log.append(f"{fmt_name(player)} 触发【乾·飞龙在天】：立刻获得 {gain} 金币！")
+    # 后续 3 回合移动额外 +2
+    for i in range(1, 4):
+        player.status.setdefault("energy_events", []).append((i, "move", 2, "乾·飞龙在天"))
+    game.log.append(f"后续 3 回合移动步数 +2")
+
+def _handle_qian_4(game: Game, player: Player):
+    """亢龙有悔：接下来3回合内，所有技能冷却-1（最低1），但每次使用技能额外支付1000金币"""
+    # 后续 3 回合技能冷却 -1 但使用技能时需要额外支付 1000
+    for i in range(1, 4):
+        player.status.setdefault("energy_events", []).append((i, "skill", "", 1000, "乾·亢龙有悔"))
+    game.log.append(f"{fmt_name(player)} 触发【乾·亢龙有悔】：")
+    game.log.append(f"接下来 3 回合内，所有技能冷却-1（最低1），但每次使用技能需额外支付 1000 金币！")
 
 # ---------- 坤卦专用处理 ----------
 def _handle_kun_1(game: Game, player: Player):
@@ -189,7 +211,7 @@ def _handle_xun_2(game: Game, player: Player):
     player.status["xun_speed"] = 1   # 仅影响下回合
     game.log.append(
         f"{fmt_name(player)} 触发【巽·风行灵散】：损失 {lost} 灵气，"
-        f"但下回合移动额外 +3 步！"
+        f"但下回合移动额外 +3 步！" # 参考乾3
     )
 
 # ---------- 坎卦专用处理 ----------
@@ -266,6 +288,7 @@ def _handle_dui_2(game: Game, player: Player):
     lost = player.energy * 3 // 10
     player.add_energy(-lost)
     # 记录“全局回合解锁技能”
+    ### 我觉得这里有问题！！！
     unlock_turn = game.turn + len(game.players)       # 下个大回合
     player.status.setdefault("energy_events", []).append((unlock_turn, "skill", 0, "兑·泽涸灵枯"))
     game.log.append(f"{fmt_name(player)} 触发【兑·泽涸灵枯】：流失 {lost} 灵气，下回合无法使用技能！")
