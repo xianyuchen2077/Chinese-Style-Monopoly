@@ -62,6 +62,7 @@ class Negative(Enum):
     ZHEN_SHOCKED = "zhen_shocked"
     LI_SKILL_DOWNGRADE = "li_skill_downgrade"
     NO_MONEY_THIS_TURN = "no_money_this_turn"   # 本回合不会有经济收益
+    NO_ENERGY_THIS_TURN = "no_energy_this_turn"   # 本回合不会有灵气收益
     DEFENCE_SKILL_ONCE = "defence_skill_once"   # 免疫技能一次
 
 # 统一日志玩家名称
@@ -624,6 +625,7 @@ class Player:
         self.is_ai = is_ai
         self.money = 10000       # 初始资金
         self.no_money_this_turn = False     # 本回合不能获得任何金币
+        self.no_energy_this_turn = False    # 本回合不能获得任何灵气
         self.energy = 100        # 初始灵气
         self._pending_return: list[tuple[int, int]] = []  # (剩余回合, 金额/灵气)
         self.position = 0
@@ -647,12 +649,34 @@ class Player:
         统一给玩家增减金币。
         """
         actual = amount
-        if actual > 0 and self.no_money_this_turn:
-            actual = 0
-            self.no_money_this_turn = False
-            self.status.pop("no_money_this_turn", 0)
-            if self.game is not None and hasattr(self.game, "log"):
-                self.game.log.append(f"{fmt_name(self)} 陷入【鄙吝】状态，本回合无法获得任何金币")
+        if actual > 0:
+            if self.no_money_this_turn:
+                actual = 0
+                if self.status.get("no_money_this_turn", 0) > 0:
+                    self.no_money_this_turn = True
+                else:
+                    self.no_money_this_turn = False
+                    self.status.pop("no_money_this_turn", 0)
+                if self.game is not None and hasattr(self.game, "log"):
+                    self.game.log.append(f"{fmt_name(self)} 陷入【鄙吝】状态，本回合无法获得任何金币")
+        elif actual < 0:
+            # 【艮·艮止如山】——租金减免 50 %
+            gen_left_turn = self.status.get("gen_reduce_damage", 0)
+            if gen_left_turn > 0 :
+                discount = self.status.get("gen_damage_discount", 1.0)
+                actual = int(actual * discount)
+                if self.game is not None and hasattr(self.game, "log"):
+                    self.game.log.append(f"因【艮·艮止如山】本次罚款减免 {discount*100}%")
+                # 剩余次数 -1
+                left = self.status.get("gen_reduce_damage", 0)
+                if left > 0:
+                    left -= 1
+                    if left == 0:
+                        self.status.pop("gen_reduce_damage", None)
+                    else:
+                        self.status["gen_reduce_damage"] = left
+                else:
+                    self.status.pop("gen_reduce_damage", None)
 
         self.money += actual
         return actual
@@ -661,15 +685,41 @@ class Player:
             """
             统一给玩家增减灵气。
             """
+            actual = amount
+            if actual > 0:
+                if self.no_energy_this_turn:
+                    actual = 0
+                    if self.status.get("no_energy_this_turn", 0) > 0:
+                        self.no_energy_this_turn = True
+                    else:
+                        self.no_energy_this_turn = False
+                        self.status.pop("no_energy_this_turn", 0)
+                    if self.game is not None and hasattr(self.game, "log"):
+                        self.game.log.append(f"{fmt_name(self)} 陷入【鄙灵】状态，本回合无法获得任何灵气")
+            elif actual < 0:
+                # 【艮·艮止如山】——租金减免 50 %
+                gen_left_turn = self.status.get("gen_reduce_damage", 0)
+                if gen_left_turn > 0 :
+                    discount = self.status.get("gen_damage_discount", 1.0)
+                    actual = int(actual * discount)
+                    if self.game is not None and hasattr(self.game, "log"):
+                        self.game.log.append(f"因【艮·艮止如山】本次灵气损失减免 {discount*100}%")
+                    # 剩余次数 -1
+                    left = self.status.get("gen_reduce_damage", 0)
+                    if left > 0:
+                        left -= 1
+                        if left == 0:
+                            self.status.pop("gen_reduce_damage", None)
+                        else:
+                            self.status["gen_reduce_damage"] = left
+                    else:
+                        self.status.pop("gen_reduce_damage", None)
+
             if self.status.pop("zhen_shocked", 0):
                 if amount > 0:
                     actual = amount // 2
                     if self.game is not None and hasattr(self.game, "log"):
                         self.game.log.append(f"{fmt_name(self)} 被【震慑】，本次灵气收益减半：{actual}（原{amount}）")
-                else:
-                    actual = amount
-            else:
-                actual = amount
 
             self.energy += actual
             return actual
@@ -724,16 +774,17 @@ class Player:
         remain = []
         for evt in self.status.get("energy_events", []):
             turns_left, type, *payload = evt
-            if turns_left <= 0 and type == "move":
-                value, desc = payload
-                if desc == "乾·飞龙在天":
-                    steps += value
-                    if self.game is not None and hasattr(self.game, "log"):
-                        self.game.log.append(f"{fmt_name(self)} 因【乾·飞龙在天】移动额外 +2 步！")
-                elif desc == "巽·风行灵散":
-                    steps += value
-                    if self.game is not None and hasattr(self.game, "log"):
-                        self.game.log.append(f"{fmt_name(self)} 因【巽·风行灵散】移动额外 +3 步！")
+            if turns_left <= 0:
+                if type == "move":
+                    value, desc = payload
+                    if desc == "乾·飞龙在天":
+                        steps += value
+                        if self.game is not None and hasattr(self.game, "log"):
+                            self.game.log.append(f"{fmt_name(self)} 因【乾·飞龙在天】移动额外 +2 步！")
+                    elif desc == "巽·风行灵散":
+                        steps += value
+                        if self.game is not None and hasattr(self.game, "log"):
+                            self.game.log.append(f"{fmt_name(self)} 因【巽·风行灵散】移动额外 +3 步！")
             else:
                 remain.append((turns_left, type, *payload))
         # 重新写回玩家状态
@@ -864,8 +915,8 @@ class Game:
         self.bagua_tiles = self.board.bagua_tiles
         self.players = [Player(name, zodiac) for name, zodiac in zip(player_names, zodiacs)]
         self.current_player_idx = 0
-        self.turn = 0       # 独立回合
-        self.game_turn = 0  # 游戏大回合
+        self.turn = 1       # 独立回合
+        self.game_turn = 1  # 游戏大回合
         self.log = []
         self.tiger_sub_turns = []  # [(player, "main"), (player, "clone")] 或空
 
@@ -1019,7 +1070,7 @@ class Game:
         # 2. 正常轮换
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
         self.turn += 1
-        self.game_turn = self.turn // len(self.players)
+        self.game_turn = (self.turn - 1) // len(self.players) + 1
 
         # 清理上一位玩家状态
         new_current = self.players[self.current_player_idx]
@@ -1050,6 +1101,7 @@ class Game:
         # 恢复所有玩家的移动能力
         for p in self.players:
             p.can_move = True
+            # p.remain_in_the_same_position = False
             p.skill_mgr.tick_cooldown()   # 统一减 CD
 
             # 业障状态处理
@@ -1091,14 +1143,31 @@ class Game:
             else:
                 p.status["kun_pregnancy"] = left
         # 处理【艮·山止灵滞】
-        left = p.status.get("gen_no_energy_gain", 0)
+        left = p.status.get("no_energy_this_turn", 0)
         if left > 0:
             left -= 1
             if left == 0:
-                p.status.pop("gen_no_energy_gain", None)
+                p.status.pop("no_energy_this_turn", None)
             else:
-                p.status["gen_no_energy_gain"] = left
+                p.status["no_energy_this_turn"] = left
             self.log.append(f"{fmt_name(p)} 受【山止灵滞】影响，本回合无法获得灵气。")
+        # 处理租金折扣
+        left = p.status.get("rent_discount", 0)
+        if left > 0:
+            left -= 1
+            if left == 0:
+                p.status.pop("rent_discount", None)
+            else:
+                p.status["rent_discount"] = left
+        # 处理【艮·时行则行】
+        left = p.status.get("hibernate", 0)
+        if left > 0:
+            left -= 1
+            if left == 0:
+                p.status.pop("hibernate", None)
+                self.log.append(f"{fmt_name(p)} 的【蛰伏】结束，恢复正常行动")
+            else:
+                p.status["hibernate"] = left
 
         remain = []
         for evt in p.status.get("energy_events", []):
@@ -1115,8 +1184,10 @@ class Game:
                 # 和灵气值相关的事件
                 if type == "energy":
                     value, desc = payload
+                    if desc == "艮·山止灵滞":
+                        p.no_energy_this_turn = True
                     # 震·震惧致福专属：必须存在负面状态才触发
-                    if desc == "震·震惧致福":
+                    elif desc == "震·震惧致福":
                         if p.has_negative_status():
                             p.add_energy(value)
                             self.log.append(f"{fmt_name(p)} 在【震·震惧致福】回合内受负面效果，补偿 50 灵气")
@@ -1159,6 +1230,12 @@ class Game:
                         else:
                             p.status.pop("defence_skill_once", None)
                         self.log.append(f"{fmt_name(p)} 本回合仍受到【风行】庇护")  # 留个日志象征性输出一下
+                    elif desc == "艮·时行则行":
+                        self.log.append(f"{fmt_name(p)} 本回合处于【蛰伏】状态")
+                        self.log.append(f"每回合获得 1000 金币和 100 灵气")
+                        gain_1 = p.add_money(1000)
+                        gain_2 = p.add_energy(100)
+                        self.log.append(f"{fmt_name(p)} 本回合获得 {gain_1} 金币和 {gain_2} 灵气")
                 else:
                     remain.append((turns_left, type, *payload))
             else:
@@ -1268,10 +1345,10 @@ class Game:
                     self.log.append(f'{fmt_name(player)} 点石成金，获得3000金币！')
             elif e == Element.WOOD:
                 removed = False
-                if player.status:
-                    player.status.clear()
-                    removed = True
-                self.log.append(f'{fmt_name(player)} 枯木逢春，{"解除所有负面状态" if removed else "精神焕发"}。')
+                # if player.status:
+                #     player.status.clear()
+                #     removed = True
+                # self.log.append(f'{fmt_name(player)} 枯木逢春，{"解除所有负面状态" if removed else "精神焕发"}。')
             elif e == Element.WATER:
                 player.position = (player.position + 3) % len(self.board.tiles)
                 self.log.append(f'{fmt_name(player)} 顺水推舟，额外前进3格至 {player.position}。')
@@ -1388,7 +1465,7 @@ class Game:
         base_price = tile.price
         owner = tile.owner
 
-        # 坤·含弘光大：孕育状态触发升级
+        # 【坤·含弘光大】——孕育状态触发房屋升级
         if (owner is not None and owner.status.get("kun_pregnancy", 0) > 0 and tile.level != BuildingLevel.PALACE):
             if random.random() < 0.1:
                 old_lv = tile.level
@@ -1433,11 +1510,29 @@ class Game:
         if 'karma' in player.status and player.status['karma'] > 0:
             rent = int(rent * 1.5)  # 业障状态下租金+50%
 
-        # 【艮】灵气值奇遇——【山止灵滞】
-        discount = player.status.get("gen_rent_discount", 1.0)
-        gen_left_turn = player.status.get("gen_no_energy_gain", 0)
+        # 【艮·山止灵滞】——租金减免 30 %
+        gen_left_turn = player.status.get("rent_discount", 0)
         if gen_left_turn > 0 :
+            discount = player.status.get("gen_rent_discount", 1.0)
             rent = int(rent * discount)
+            self.log.append(f"因【艮·山止灵滞】本次租金减免 30%")
+
+        # 【艮·艮止如山】——租金减免 50 %
+        gen_left_turn = player.status.get("gen_reduce_damage", 0)
+        if gen_left_turn > 0 :
+            discount = player.status.get("gen_damage_discount", 1.0)
+            rent = int(rent * discount)
+            self.log.append(f"因【艮·艮止如山】本次租金减免 {discount*100}%")
+
+            left = player.status.get("gen_reduce_damage", 0)
+            if left > 0:
+                left -= 1
+                if left == 0:
+                    player.status.pop("gen_reduce_damage", None)
+                else:
+                    player.status["gen_reduce_damage"] = left
+            else:
+                player.status.pop("gen_reduce_damage", None)
 
         return max(0, rent)  # 确保租金非负
 

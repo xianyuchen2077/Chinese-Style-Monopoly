@@ -294,6 +294,26 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
         tile_3.owner = player_npc
         player_npc.properties.append(8)
         player_npc_2.position = 7
+    elif bagua_char == "艮":
+        tile_3 = game.board.tiles[2]
+        tile_3.level = BuildingLevel.INN
+        tile_3.owner = player_npc
+        player_npc.properties.append(2)
+        tile_3.bagua = Bagua("乾")
+        tile_3.special = "buff_bagua"
+        game.board.bagua_tiles[2] = Bagua("乾")
+        tile_3 = game.board.tiles[3]
+        tile_3.level = BuildingLevel.INN
+        tile_3.owner = player_npc
+        player_npc.properties.append(3)
+        tile_3 = game.board.tiles[4]
+        tile_3.level = BuildingLevel.INN
+        tile_3.owner = player_npc
+        player_npc.properties.append(4)
+        tile_3 = game.board.tiles[5]
+        tile_3.level = BuildingLevel.INN
+        tile_3.owner = player_npc
+        player_npc.properties.append(5)
 
     # 3) 固定骰点 1 → 正好走到 1 号格
     ui_instance.test_dice = 1

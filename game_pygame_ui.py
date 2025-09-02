@@ -1434,6 +1434,14 @@ class GameUI:
             self.game.next_turn()
             return
 
+        # 【蛰伏】状态，无法进行任何操作
+        if player.status.get('hibernate', 0) > 0:
+            player.remain_in_the_same_position = True
+            self.log.append(f'{fmt_name(player)} 处于【蛰伏】状态，跳过回合。')
+            self._scroll_to_bottom()
+            self.game.next_turn()
+            return
+
         # 动画
         self._animate_wheel(dice_result)
 

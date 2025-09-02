@@ -13,3 +13,5 @@
         if 'shu_control' in player.status: negative_states.append('被控')
 6.  如果玩家被控制在原地，为了避免重复触发停留格效果，需要 player.remain_in_the_same_position = True
 7.  tile的special处理逻辑有错误，一个状态消失了，这个special就变成None了
+8.  status不要轻易clear()
+9.  艮_4的蛰伏状态的免疫攻击和负面效果没有实现（有点麻烦）,好像跳过回合也有点问题

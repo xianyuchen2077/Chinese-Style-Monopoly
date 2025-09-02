@@ -134,12 +134,16 @@ def trigger_bagua_encounter(game: Game, player: Player, tile: Tile):
         else:
             _handle_li_4(game, player)
     elif bagua.value == "艮":
-        if roll < 0.5:
+        if roll < 0.25:
             _handle_gen_1(game, player)
-        else:
+        elif roll < 0.5:
             _handle_gen_2(game, player)
+        elif roll < 0.75:
+            _handle_gen_3(game, player)
+        else:
+            _handle_gen_4(game, player)
     elif bagua.value == "兑":
-        if random.random() < 0.5:
+        if roll < 0.5:
             _handle_dui_1(game, player)
         else:
             _handle_dui_2(game, player)
@@ -448,14 +452,38 @@ def _handle_li_4(game: Game, player: Player):
 def _handle_gen_1(game: Game, player: Player):
     """艮止凝元：回合数 × 30 灵气，上限600"""
     gain = min(game.game_turn * 30, 600)
-    player.add_energy(gain)
+    gain = player.add_energy(gain)
     game.log.append(f"{fmt_name(player)} 触发【艮·艮止凝元】：回合沉淀，获得 {gain} 灵气！")
 
 def _handle_gen_2(game: Game, player: Player):
-    """山止灵滞：2 回合无法获得灵气，租金-30%"""
-    player.status["gen_no_energy_gain"] = 2 * len(game.players)
-    player.status["gen_rent_discount"] = 0.7  # 支付 70 %
-    game.log.append(f"{fmt_name(player)} 触发【艮·山止灵滞】：2 回合内无法获得灵气，租金减免 30%！")
+    """山止灵滞：2 回合无法获得灵气，但租金 -30%"""
+    player.status["gen_rent_discount"] = 0.7        # 支付 70 %
+    player.status["no_energy_this_turn"] = 2        # 两个回合
+    player.status["rent_discount"] = 2
+    player.status.setdefault("energy_events", []).append((1, "energy", 2, "艮·山止灵滞"))    # 标记下两回合无法获得灵气
+    game.log.append(f"{fmt_name(player)} 触发【艮·山止灵滞】：2 回合内无法获得灵气，但期间租金减免 30%！")
+
+def _handle_gen_3(game: Game, player: Player):
+    """艮止如山：接下来 3 次的金币或灵气减少的效果减半"""
+    player.status["gen_reduce_damage"] = 3      # 剩余次数
+    player.status["gen_damage_discount"] = 0.5
+    game.log.append(f"{fmt_name(player)} 触发【艮·艮止如山】：")
+    game.log.append(f"接下来 3 次的金币或灵气减少时效果减半！")
+
+def _handle_gen_4(game: Game, player: Player):
+    """时行则行：蛰伏 2 回合，免伤免负面，每回合 + 1000 金 + 100 灵气"""
+    player.status["hibernate"] = 3   # 2 大回合
+    for i in range(1,3):
+        player.status.setdefault("energy_events", []).append((i, "defence", 1000, "艮·时行则行"))
+    game.log.append(f"{fmt_name(player)} 触发【艮·时行则行】：")
+    game.log.append(f"进入蛰伏状态 2 回合，期间免伤免负面，每回合恢复 1000 金币 100 灵气！")
+
+    # 从当前回合算起
+    game.log.append(f"{fmt_name(player)} 本回合处于【蛰伏】状态")
+    game.log.append(f"每回合获得 1000 金币和 100 灵气")
+    gain_1 = player.add_money(1000)
+    gain_2 = player.add_energy(100)
+    game.log.append(f"{fmt_name(player)} 本回合获得 {gain_1} 金币和 {gain_2} 灵气")
 
 # ---------- 兑卦专用处理 ----------
 def _handle_dui_1(game: Game, player: Player):
