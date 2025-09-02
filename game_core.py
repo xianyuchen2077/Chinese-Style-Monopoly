@@ -627,6 +627,7 @@ class Player:
         self.energy = 100        # 初始灵气
         self._pending_return: list[tuple[int, int]] = []  # (剩余回合, 金额/灵气)
         self.position = 0
+        self.remain_in_the_same_position = False    # 上回合是不是停留在同一个格子（不能重复触发奇遇）
         self.score = 0
         self.properties = []
         self.destroyed_tiles: set[int] = set()   # 曾被破坏的地皮索引
@@ -691,7 +692,8 @@ class Player:
 
     def move_step(self, steps):
         """返回最终步数（含方向）"""
-        # 1. 被子鼠控制停留
+
+        # 被子鼠控制停留原地
         if 'shu_control' in self.status:
             ctrl = self.status['shu_control']
             if ctrl['turns'] > 0 and ctrl['direction'] == 'stay':
@@ -701,18 +703,18 @@ class Player:
                 self.can_move = False
                 return 0
 
-        # 2. 丑牛冲撞：提前记录路径
+        # 丑牛冲撞：提前记录路径
         if 'niu_rampage' in self.status:
             rampage_info = self.status['niu_rampage']
             rampage_info['path_tiles'] = self.record_move_path(steps, self.game)
 
-        # 3. 卯兔加速
+        # 卯兔加速
         if self.zodiac == '兔':
             skill = self.skill_mgr.skills['兔']
             if skill['active']:
                 steps *= skill['multiplier']
 
-        # 4. 未羊灵魂期间本体不移动
+        # 未羊灵魂期间本体不移动
         if self.zodiac == '羊':
             skill = self.skill_mgr.skills['羊']
             if skill['soul_pos'] is not None:
@@ -784,6 +786,7 @@ class Tile:
         self.owner    = None         # 所属玩家
         self.level    = BuildingLevel.EMPTY  # 建筑等级
         self.special  = special      # 特殊类型
+        self.status = {}             # 格子状态
 
 class GameBoard:
     def __init__(self):
@@ -952,6 +955,15 @@ class Game:
         # 处理丑牛冲撞效果
         self.handle_niu_rampage(player)
 
+        # 险陷区域判定
+        tile = self.board.tiles[player.position]
+        if tile.special == "trap_zone":
+            if random.random() < 0.5:   # 塌陷概率为 0.5
+                player.status["skip_turns"] = max(player.status.get("skip_turns", 0), 1)
+                self.log.append(f"{fmt_name(player)} 踏入险陷区域，被困原地 1 回合！")
+            else:
+                self.log.append(f"{fmt_name(player)} 侥幸通过险陷区域。")
+
         return player.position
 
     def next_turn(self):
@@ -1011,6 +1023,16 @@ class Game:
         # 清理上一位玩家状态
         new_current = self.players[self.current_player_idx]
         new_current.status.pop('just_bought', None)
+
+        # 特殊格子状态清理
+        for t in self.board.tiles:
+            # 清理险陷区域倒计时
+            if getattr(t, "special", None) == "trap_zone":
+                t.trap_turns -= 1
+                if t.trap_turns <= 0:
+                    t.special = None
+                    t.status["cracked"] = False
+                    self.log.append(f"{t.idx} 号格子的险陷已被修复，可安全通行。")
 
         # 恢复所有玩家的移动能力
         for p in self.players:
@@ -1205,7 +1227,11 @@ class Game:
         pass
 
     def trigger_event(self, player):
-        from game_trigger_event import trigger_bagua_lingqi_encounter
+        assert isinstance(player, Player)
+        if player.remain_in_the_same_position:
+            player.remain_in_the_same_position = False
+            return
+        from game_trigger_event import trigger_bagua_encounter
         # 简易奇遇系统：根据格子五行或特殊类型触发效果
         tile = self.board.tiles[player.position]
         if tile.special == 'start':
@@ -1242,7 +1268,7 @@ class Game:
 
             # 八卦灵气奇遇
             if tile.bagua:
-                trigger_bagua_lingqi_encounter(self, player, tile)
+                trigger_bagua_encounter(self, player, tile)
 
             return
 

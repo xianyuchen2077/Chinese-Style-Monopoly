@@ -71,7 +71,7 @@ BAGUA_LINGQI_EVENTS: Dict[Bagua, List[dict]] = {
 }
 
 # ---------- 八卦灵气事件对外接口 ----------
-def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
+def trigger_bagua_encounter(game: Game, player: Player, tile: Tile):
     """踩到八卦格时调用"""
     if tile.bagua is None:
         return
@@ -116,10 +116,14 @@ def trigger_bagua_lingqi_encounter(game: Game, player: Player, tile: Tile):
         else:
             _handle_xun_4(game, player)
     elif bagua.value == "坎":
-        if random.random() < 0.5:
+        if roll < 0.25:
             _handle_kan_1(game, player)
-        else:
+        elif roll < 0.5:
             _handle_kan_2(game, player)
+        elif roll < 0.75:
+            _handle_kan_3(game, player)
+        else:
+            _handle_kan_4(game, player)
     elif bagua.value == "离":
         if random.random() < 0.5:
             _handle_li_1(game, player)
@@ -317,20 +321,50 @@ def _handle_xun_4(game: Game, player: Player):
 # ---------- 坎卦专用处理 ----------
 def _handle_kan_1(game: Game, player: Player):
     """坎渊悟道：已陷入负面状态数量 × 200 灵气"""
-    negative_count = len([
-        k for k in player.status.keys()
-        if k in Negative
-    ])
+    negative_count = len([k for k in player.status.keys() if k in Negative])
     gain = negative_count * 200
-    player.add_energy(gain)
+    gain = player.add_energy(gain)
     game.log.append(f"{fmt_name(player)} 触发【坎·坎渊悟道】：身陷 {negative_count} 种负面状态，获得 {gain} 灵气！")
 
 def _handle_kan_2(game: Game, player: Player):
-    """水流灵逝：损失 300 灵气并禁锢1回合"""
+    """水流灵逝：损失 300 灵气并被额外禁锢1回合"""
     lost = min(300, player.energy)
-    player.add_energy(-lost)
-    player.status["skip_turns"] = max(player.status.get("skip_turns", 0), 1)
-    game.log.append(f"{fmt_name(player)} 触发【坎·水流灵逝】：损失 300 灵气并被禁锢 1 回合！")
+    lost = -player.add_energy(-lost)
+    player.status["skip_turns"] = player.status.get("skip_turns", 0) + 1
+    game.log.append(f"{fmt_name(player)} 触发【坎·水流灵逝】：损失 {lost} 灵气并被额外禁锢 1 回合！")
+
+def _handle_kan_3(game: Game, player: Player):
+    """坎陷重重：位于玩家后方12格内的所有其他玩家停止一回合"""
+    board_len = len(game.board.tiles)
+    step = -1 if player.clockwise else 1  # 与玩家当前方向相反 = 后方
+    trapped = []
+
+    for p in game.players:
+        if p == player:
+            continue
+        # 计算“后方 12 格”
+        for offset in range(1, 13):
+            idx = (player.position + offset * step) % board_len
+            if p.position == idx:
+                p.status["skip_turns"] = max(p.status.get("skip_turns", 0), 1)
+                trapped.append(fmt_name(p))
+                break
+
+    if trapped:
+        names = ",".join(trapped)
+        game.log.append(f"{fmt_name(player)} 触发【坎·坎陷重重】：{names} 被迫停止一回合！")
+    else:
+        game.log.append(f"{fmt_name(player)} 触发【坎·坎陷重重】：后方 12 格内无其他玩家。")
+
+def _handle_kan_4(game: Game, player: Player):
+    """水洊至习坎：在当前格子召唤“险陷”区域，持续2回合"""
+    tile = game.board.tiles[player.position]
+    tile.special = "trap_zone"
+    tile.status["cracked"] = True
+    tile.trap_turns = 2 * len(game.players)   # 2 个大回合
+    game.log.append(f"{fmt_name(player)} 触发【坎·水洊至习坎】：格子 {player.position} 出现险陷区域,")
+    game.log.append(f"有 50 %概率塌陷，让玩家滞留 1 回合")
+    game.log.append(f"该效果持续 2 回合！")
 
 # ---------- 离卦专用处理 ----------
 def _handle_li_1(game: Game, player: Player):

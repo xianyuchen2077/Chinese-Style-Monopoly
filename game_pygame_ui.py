@@ -312,7 +312,7 @@ class GameUI:
             if os.path.exists(normal_path):
                 self.tiger_normal_img = pygame.image.load(normal_path).convert_alpha()
                 self.tiger_normal_img = pygame.transform.smoothscale(
-                    self.tiger_normal_img, (int(CELL_SIZE * 0.8), int(CELL_SIZE * 0.8))
+                self.tiger_normal_img, (int(CELL_SIZE * 0.8), int(CELL_SIZE * 0.8))
                 )
             else:
                 # 使用通用虎图作为普通状态
@@ -361,6 +361,10 @@ class GameUI:
                 imgs[level] = img
             else:
                 imgs[level] = None   # 缺图时留空
+
+        # 导入裂缝图片
+        self.crack_img = pygame.image.load(os.path.join("assets", "Tiles", "crack.png")).convert_alpha()            # 存到实例属性
+
         return imgs
 
     def _draw_player_sprite(self, idx, cx, cy, alpha=255,
@@ -501,6 +505,39 @@ class GameUI:
                 self.screen.blit(outline, outline.get_rect(center=(x + dx, y + dy)))
             self.screen.blit(fill, fill.get_rect(center=(x, y)))
 
+    def _draw_tile_cracks(self):
+        """在格子上绘制裂纹（仅裂纹，不负责别的）"""
+        crack_size = int(CELL_SIZE * 0.8)          # 占 80 %
+        crack_img = self.crack_img                 # 已在 _load_building_imgs 里加载
+        crack_img = pygame.transform.smoothscale(crack_img, (crack_size, crack_size))
+
+        # 全局坐标映射（与 draw_board 保持一致）
+        grid_map = [[-1 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+        idx = 0
+        for i in range(GRID_SIZE):
+            grid_map[0][i] = idx; idx += 1
+        for i in range(1, GRID_SIZE):
+            grid_map[i][GRID_SIZE-1] = idx; idx += 1
+        for i in range(GRID_SIZE-2, -1, -1):
+            grid_map[GRID_SIZE-1][i] = idx; idx += 1
+        for i in range(GRID_SIZE-2, 0, -1):
+            grid_map[i][0] = idx; idx += 1
+
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
+                tile_idx = grid_map[row][col]
+                if tile_idx == -1:
+                    continue
+                tile = self.game.board.tiles[tile_idx]
+                if not tile.status.get("cracked"):
+                    continue
+
+                # 计算中心坐标
+                x = self.margin + col * CELL_SIZE + CELL_SIZE // 2
+                y = self.margin + row * CELL_SIZE + CELL_SIZE // 2 + Y_OFFSET
+                rect = crack_img.get_rect(center=(x, y))
+                self.screen.blit(crack_img, rect)
+
     def draw_board(self):
         # 背景
         self.screen.fill(BG_COLOR)
@@ -577,6 +614,10 @@ class GameUI:
                 if tile_info and tile_info.get('special'):
                     border_color = SPECIAL_BORDER_COLORS.get(tile_info['special'], (255, 0, 255))
                     pygame.draw.rect(self.screen, border_color, rect, 4)
+
+                # 绘制特殊格子状态
+                # “裂缝”状态
+                self._draw_tile_cracks()
 
                 # 左上角编号
                 pygame.draw.circle(self.screen, BLACK, (x + 13, y + 13), 10)
@@ -1379,15 +1420,18 @@ class GameUI:
 
         if not player.can_move:
             reason = "被【灵鼠窃运】禁锢，无法行动" if player.status.get('shu_control', {}).get('direction') == 'stay' else "无法移动"
+            player.remain_in_the_same_position = True
             self.log.append(f'{fmt_name(player)} {reason}')
             self._scroll_to_bottom()
             return
 
+        # 休息回合，无法进行任何操作
         if player.status.get('skip_turns', 0) > 0:
             player.status['skip_turns'] -= 1
+            player.remain_in_the_same_position = True
             self.log.append(f'{fmt_name(player)} 休息中，跳过回合。')
             self._scroll_to_bottom()
-            self.game.next_turn()   # 休息回合，无法进行任何操作
+            self.game.next_turn()
             return
 
         # 动画
