@@ -54,7 +54,7 @@ BAGUA_LINGQI_EVENTS: Dict[Bagua, List[dict]] = {
         {"name": "离明顿悟",   "desc": "大人以继明照于四方",     "type": "positive"},
         {"name": "火焚灵耗",   "desc": "突如其来如焚如",         "type": "negative"},
         {"name": "离明火光",   "desc": "立刻随机升级自身2块地皮的建筑1个等级",               "type": "positive"},
-        {"name": "突如其来如", "desc": "立刻随机选择一名其他玩家，其所有地皮上的建筑等级临时-1（持续3回合），且这些地皮在此期间产生的租金将支付给你", "type": "negative"},
+        {"name": "突如其来", "desc": "立刻随机选择一名其他玩家，其所有地皮上的建筑等级临时-1（持续3回合），且这些地皮在此期间产生的租金将支付给你", "type": "negative"},
     ],
     Bagua.GEN: [
         {"name": "艮止凝元",   "desc": "君子以思不出其位",       "type": "positive"},
@@ -125,12 +125,16 @@ def trigger_bagua_encounter(game: Game, player: Player, tile: Tile):
         else:
             _handle_kan_4(game, player)
     elif bagua.value == "离":
-        if random.random() < 0.5:
+        if roll < 0.25:
             _handle_li_1(game, player)
-        else:
+        elif roll < 0.5:
             _handle_li_2(game, player)
+        elif roll < 0.75:
+            _handle_li_3(game, player)
+        else:
+            _handle_li_4(game, player)
     elif bagua.value == "艮":
-        if random.random() < 0.5:
+        if roll < 0.5:
             _handle_gen_1(game, player)
         else:
             _handle_gen_2(game, player)
@@ -359,9 +363,8 @@ def _handle_kan_3(game: Game, player: Player):
 def _handle_kan_4(game: Game, player: Player):
     """水洊至习坎：在当前格子召唤“险陷”区域，持续2回合"""
     tile = game.board.tiles[player.position]
-    tile.special = "trap_zone"
-    tile.status["cracked"] = True
-    tile.trap_turns = 2 * len(game.players)   # 2 个大回合
+    tile.special = "negative"
+    tile.status["cracked"] = 2 * len(game.players)   # 2 个大回合
     game.log.append(f"{fmt_name(player)} 触发【坎·水洊至习坎】：格子 {player.position} 出现险陷区域,")
     game.log.append(f"有 50 %概率塌陷，让玩家滞留 1 回合")
     game.log.append(f"该效果持续 2 回合！")
@@ -380,22 +383,66 @@ def _handle_li_2(game: Game, player: Player):
     lost = min(350, player.energy)
     player.add_energy(-lost)
 
-    # 找到已学会的最高级技能
-    skills = player.skill_mgr.skills
-    candidates = [(z, sk) for z, sk in skills.items() if sk['level'].value > 1]
-    if candidates:
-        zodiac, skill = random.choice(candidates)
-        original_level = skill['level']
-        # 立刻降级
-        skill['level'] = SkillLevel(skill['level'].value - 1)
-        game.log.append(f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气，")
-        game.log.append(f"技能【{SKILL_NAMES[zodiac]}】等级暂时降至 {skill['level'].name}，持续 3 回合！")
-
-        # 登记 3 回合后恢复（延迟队列）
-        player.status.setdefault("energy_events", []).append((3 * len(game.players), "skill", zodiac, original_level, "离·火焚灵耗"))
-    else:
+    # 只拿当前玩家真正学过的技能（已解锁且等级 > 1）
+    mgr = player.skill_mgr
+    zodiac = player.zodiac
+    skill = mgr.skills.get(zodiac)
+    if skill is None or skill['level'].value <= 1:
         game.log.append(f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气，")
         game.log.append(f"无技能可被降级！")
+        return
+
+    original_level = skill['level']
+    skill['level'] = SkillLevel(original_level.value - 1)
+    game.log.append(f"{fmt_name(player)} 触发【离·火焚灵耗】：损失 350 灵气，")
+    game.log.append(f"技能【{SKILL_NAMES[zodiac]}】等级暂时降至 {skill['level'].name}，")
+    game.log.append(f"该效果持续 3 回合！")
+
+    # 登记 3 回合后恢复（延迟队列）
+    player.status.setdefault("energy_events", []).append((3 , "skill", zodiac, original_level, "离·火焚灵耗"))  # 从当前回合开始算起
+
+def _handle_li_3(game: Game, player: Player):
+    """离明火光：立刻随机升级自身 2 块地皮的建筑 1 个等级"""
+    candidates = [idx for idx in player.properties if game.board.tiles[idx].level != BuildingLevel.PALACE]
+    if not candidates:
+        game.log.append(f"{fmt_name(player)} 触发【离·离明火光】：无可升级地皮")
+        return
+
+    chosen = random.sample(candidates, min(2, len(candidates)))
+    for idx in chosen:
+        tile = game.board.tiles[idx]
+        old = tile.level
+        tile.level = BuildingLevel(old.value + 1)
+        game.log.append(f"{fmt_name(player)} 触发【离·离明火光】：升级「{tile.name}」")
+        game.log.append(f" {old.name} → {tile.level.name}")
+
+def _handle_li_4(game: Game, player: Player):
+    """突如其来如：随机一名其他玩家所有建筑-1 级 3 回合，期间租金归触发者"""
+    targets = [p for p in game.players if p != player and p.properties]
+    if not targets:
+        game.log.append(f"{fmt_name(player)} 触发【离·突如其来】：无其他玩家可选")
+        return
+
+    victim = random.choice(targets)
+
+    # 立即降级并记录租金归属
+    downgraded = []
+    for idx in victim.properties:
+        tile = game.board.tiles[idx]
+        if tile.level.value > 0:             # 不降至空地以下
+            tile.level = BuildingLevel(tile.level.value - 1)
+            tile.special = "negative"
+            tile.status["stolen_rent"] = 3 * len(game.players)   # 3 个大回合
+            tile.status["stolen_rent_thief"] = player
+            downgraded.append(idx)
+
+    if not downgraded:
+        game.log.append(f"{fmt_name(player)} 触发【离·突如其来】：{fmt_name(victim)} 无可降级建筑")
+        return
+
+    game.log.append(f"{fmt_name(player)} 触发【离·突如其来】：")
+    game.log.append(f"{fmt_name(victim)} 的 {len(downgraded)} 块地皮等级-1，")
+    game.log.append(f"持续 3 回合，期间租金归 {fmt_name(player)}")
 
 # ---------- 艮卦专用处理 ----------
 def _handle_gen_1(game: Game, player: Player):

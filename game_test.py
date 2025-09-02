@@ -239,7 +239,8 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
             if "level" in sk and sk["level"].value < 3:
                 sk["level"] = SkillLevel.III
         game.log.append("【测试】已将该玩家所有技能等级升至最高级（III）")
-        game.board.tiles[26].level = BuildingLevel.PALACE
+        # 升级地皮
+        game.board.tiles[26].level = BuildingLevel.INN
         game.log.append("【测试】已将26号地皮等级升至最高级（PALACE）")
 
     player_npc = game.players[1]
@@ -256,7 +257,7 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
         player_npc_2.money = 20000
     elif bagua_char == "坎":
         player_npc.position = 36
-        # player_npc_2.position = 37
+        player_npc_2.position = 37
 
     # 2) 把 1 号格固定为指定八卦
     target_idx = 1
@@ -287,6 +288,12 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
 
         # 把NPC放在 25 号地皮前一格，方便测试收租
         player_npc.position = 24
+    elif bagua_char == "离":
+        tile_3 = game.board.tiles[8]
+        tile_3.level = BuildingLevel.INN
+        tile_3.owner = player_npc
+        player_npc.properties.append(8)
+        player_npc_2.position = 7
 
     # 3) 固定骰点 1 → 正好走到 1 号格
     ui_instance.test_dice = 1

@@ -12,4 +12,4 @@
         if 'karma' in player.status: negative_states.append('业障')
         if 'shu_control' in player.status: negative_states.append('被控')
 6.  如果玩家被控制在原地，为了避免重复触发停留格效果，需要 player.remain_in_the_same_position = True
-7.  “险陷”格子做出标记
+7.  tile的special处理逻辑有错误，一个状态消失了，这个special就变成None了

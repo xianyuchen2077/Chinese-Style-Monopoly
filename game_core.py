@@ -957,7 +957,8 @@ class Game:
 
         # 险陷区域判定
         tile = self.board.tiles[player.position]
-        if tile.special == "trap_zone":
+        assert isinstance(tile, Tile)
+        if tile.status.get("cracked", 0):
             if random.random() < 0.5:   # 塌陷概率为 0.5
                 player.status["skip_turns"] = max(player.status.get("skip_turns", 0), 1)
                 self.log.append(f"{fmt_name(player)} 踏入险陷区域，被困原地 1 回合！")
@@ -1026,13 +1027,25 @@ class Game:
 
         # 特殊格子状态清理
         for t in self.board.tiles:
-            # 清理险陷区域倒计时
-            if getattr(t, "special", None) == "trap_zone":
-                t.trap_turns -= 1
-                if t.trap_turns <= 0:
-                    t.special = None
-                    t.status["cracked"] = False
+            # 处理险陷区域倒计时
+            turns_left = t.status.pop("cracked", 0)
+            if turns_left:
+                turns_left -= 1
+                if turns_left <= 0:
+                    t.special = None    # TODO
                     self.log.append(f"{t.idx} 号格子的险陷已被修复，可安全通行。")
+                else:
+                    t.status["cracked"] = turns_left   # 继续倒计时
+            # 处理【离·突如其来】租金归触发者所有
+            turns_left = t.status.pop("stolen_rent", 0)
+            if turns_left:
+                turns_left -= 1
+                if turns_left <= 0:
+                    t.special = None    # TODO
+                    self.log.append(f"{t.idx} 号格子的建筑等级已恢复。")
+                    self.log.append(f"{t.idx} 号格子安全升级，租金将不再被偷。")
+                else:
+                    t.status["stolen_rent"] = turns_left   # 继续倒计时
 
         # 恢复所有玩家的移动能力
         for p in self.players:
@@ -1133,6 +1146,9 @@ class Game:
                 # 和移动相关的事件
                 elif type == "move":
                     remain.append((turns_left, type, *payload)) # 留到Player.move_step里面统一pop
+                # 和地产相关的事件
+                elif type == "land":
+                    pass
                 # 和防御免疫相关的事件
                 elif type == "defence":
                     value, desc = payload
@@ -1445,19 +1461,31 @@ class Game:
                 return  # 火灾后跳过租金支付
 
         if rent > 0:
+            rent_owner = self.rent_owner(tile)
             owner = tile.owner
+            assert isinstance(rent_owner, Player)
+            assert isinstance(owner, Player)
             if player.money >= rent:
-                player.money -= rent
-                owner.money += rent
-                self.log.append(
-                    f"{fmt_name(player)} 停留在 {fmt_name(owner)} 的「{tile.name}」"
-                    f"（{tile.element.value} - {tile.level.name}），支付 {rent} 金币租金"
-                )
+                rent = -player.add_money(-rent)     # 实际支付租金
+                rent_owner.add_money(rent)
+                self.log.append(f"{fmt_name(player)} 停留在 {fmt_name(owner)} 的【{tile.name}】")
+                self.log.append(f"（{tile.element.value} - {tile.level.name}），")
+                self.log.append(f"向{fmt_name(rent_owner)}支付 {rent} 金币租金")
             else:
                 # 资金不足时的处理（可扩展破产逻辑）
-                self.log.append(
-                    f"{fmt_name(player)} 资金不足，无法支付 {rent} 金币租金给 {fmt_name(owner)}"
-                )
+                self.log.append(f"{fmt_name(player)} 资金不足，无法支付 {rent} 金币租金给 {fmt_name(rent_owner)}")
+
+    def rent_owner(self, tile:Tile):
+        """确定租金拥有者"""
+        owner = tile.owner
+
+        if tile.status.get("stolen_rent", 0) > 0:
+            owner = tile.status.get("stolen_rent_thief", 0)
+
+        if owner:
+            return owner
+        else:
+            return None
 
     #TEST MODE
     def _run_earthquake_test(self, player):
