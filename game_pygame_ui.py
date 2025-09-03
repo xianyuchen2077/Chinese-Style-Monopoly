@@ -843,7 +843,7 @@ class GameUI:
             col = idx % cols
             row = idx // cols
             bx = info_x + col_gap + col * (col_w + col_gap)
-            by = 20 + row * (row_h + col_gap)
+            by = 10 + row * (row_h + col_gap)   # 这就是信息框整体上下位置的基准
             box_rect = pygame.Rect(bx, by, col_w, row_h)
             is_active = (idx == self.game.current_player_idx)
             base_color = (250,250,255)
@@ -856,10 +856,10 @@ class GameUI:
             # Title
             title = f"{player.name}（{player.zodiac}）"
             title_surf = render_fit(title, col_w - 2*box_pad, PLAYER_COLORS[idx%4], bold=True, base=20)
-            self.screen.blit(title_surf, (bx + box_pad, by + box_pad))
+            self.screen.blit(title_surf, (bx + box_pad, by + box_pad - 5))  # 上移 5 像素
             # Lines
-            y0 = by + box_pad + title_surf.get_height() + 6
-            line_gap = 6
+            y0 = by + box_pad - 5 + title_surf.get_height() + 6  # 上移 5 像素
+            line_gap = 4    # 这就是信息的行间距
             skill_short = SKILL_SUMMARY.get(player.zodiac, '')
             if '（' in skill_short:
                 skill_short = skill_short.split('（')[0]
@@ -886,9 +886,9 @@ class GameUI:
                 (f"金币：{player.money}", BLACK),
                 (f"灵气：{player.energy}", BLACK),
                 (f"位置：{player.position}", BLACK),
-                (f"冷却：{cd}", (100,100,100)),
-                (f"{attr_text}", (100,100,100)) if attr_text else ("", (0,0,0)),
-                (f"技能：{skill_short}", (64,64,64)),
+                (f"冷却：{cd}", BLACK),
+                (f"{attr_text}", BLACK) if attr_text else ("", (0,0,0)),
+                (f"技能：{skill_short}", BLACK),
             ]
             skill_rect = None
             for t, c in items:
