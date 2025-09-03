@@ -131,6 +131,7 @@ class SkillManager:
     """每个玩家自带一个实例，负责冷却、升级与触发"""
     def __init__(self, player):
         self.player = player
+        self.can_use_skill = True
         self.cooldown_buff = 0
         self.skills = {
             '鼠': SKILL_SHU.copy(),
@@ -142,7 +143,7 @@ class SkillManager:
         }
 
     def can_use_active_skill(self):
-        if self.player.status.get("兑·泽涸灵枯"):
+        if not self.can_use_skill:
             return False
         z = self.player.zodiac
         if z in self.skills:
@@ -1101,6 +1102,7 @@ class Game:
         # 恢复所有玩家的移动能力
         for p in self.players:
             p.can_move = True
+            p.skill_mgr.can_use_skill = True
             # p.remain_in_the_same_position = False
             p.skill_mgr.tick_cooldown()   # 统一减 CD
 
@@ -1206,14 +1208,15 @@ class Game:
                         p.no_money_this_turn = True
                 # 和技能相关的事件
                 elif type == "skill":
-                    zodiac, original_level, desc = payload
+                    zodiac, value, desc = payload
                     if desc == "乾·亢龙有悔":
                         p.skill_mgr.cooldown_buff = -1
                     elif desc == "离·火焚灵耗":
-                        p.skill_mgr.skills[zodiac]['level'] = original_level
-                        self.log.append(f"{fmt_name(p)} 的【{SKILL_NAMES[zodiac]}】等级已恢复至 {original_level.name}！")
+                        p.skill_mgr.skills[zodiac]['level'] = value
+                        self.log.append(f"{fmt_name(p)} 的【{SKILL_NAMES[zodiac]}】等级已恢复至 {value.name}！")
                     elif desc == "兑·泽涸灵枯":
-                        p.status.pop("兑·泽涸灵枯", None)
+                        p.skill_mgr.can_use_skill = False
+                        self.log.append(f"{fmt_name(p)} 受【兑·泽涸灵枯】影响，本回合无法使用技能！")
                 # 和移动相关的事件
                 elif type == "move":
                     remain.append((turns_left, type, *payload)) # 留到Player.move_step里面统一pop

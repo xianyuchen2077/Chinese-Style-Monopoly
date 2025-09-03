@@ -1197,6 +1197,12 @@ class GameUI:
 
         # ---------------- 技能按钮 ----------------
         elif self.skill_btn_rect.collidepoint(pos):
+            # 技能是否可用判断
+            if not cur.skill_mgr.can_use_active_skill():
+                self.log.append(f'{fmt_name(cur)} 本回合无法使用技能')
+                self._scroll_to_bottom()
+                return
+
             cur = self.game.players[self.game.current_player_idx]
 
             # 根据生肖自动选择目标逻辑

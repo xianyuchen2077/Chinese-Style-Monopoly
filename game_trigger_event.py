@@ -143,10 +143,14 @@ def trigger_bagua_encounter(game: Game, player: Player, tile: Tile):
         else:
             _handle_gen_4(game, player)
     elif bagua.value == "兑":
-        if roll < 0.5:
+        if roll < 0.25:
             _handle_dui_1(game, player)
-        else:
+        elif roll < 0.5:
             _handle_dui_2(game, player)
+        elif roll < 0.75:
+            _handle_dui_3(game, player)
+        else:
+            _handle_dui_4(game, player)
 
 # ---------- 八卦灵气值事件具体实现 ----------
 # ---------- 乾卦专用处理 ----------
@@ -489,15 +493,56 @@ def _handle_gen_4(game: Game, player: Player):
 def _handle_dui_1(game: Game, player: Player):
     """兑言纳灵：玩家总数 × 150 灵气"""
     gain = len(game.players) * 150
-    player.add_energy(gain)
+    gain = player.add_energy(gain)
     game.log.append(f"{fmt_name(player)} 触发【兑·兑言纳灵】：众友讲习，获得 {gain} 灵气！")
 
 def _handle_dui_2(game: Game, player: Player):
     """泽涸灵枯：-30% 灵气且下回合无法使用技能"""
     lost = player.energy * 3 // 10
-    player.add_energy(-lost)
-    # 记录“全局回合解锁技能”
-    ### 我觉得这里有问题！！！
-    unlock_turn = game.turn + len(game.players)       # 下个大回合
-    player.status.setdefault("energy_events", []).append((unlock_turn, "skill", 0, "兑·泽涸灵枯"))
+    lost = -player.add_energy(-lost)
+    player.status.setdefault("energy_events", []).append((1, "skill", "", 0, "兑·泽涸灵枯"))    # 下个大回合
     game.log.append(f"{fmt_name(player)} 触发【兑·泽涸灵枯】：流失 {lost} 灵气，下回合无法使用技能！")
+
+def _handle_dui_3(game: Game, player: Player):
+    """欣悦交融：立刻与一名随机的其他玩家进行一项“公平交易”：交换各自当前灵气值总量的75%（向下取整）"""
+    candidates = [p for p in game.players if p != player]
+    if not candidates:
+        game.log.append(f"{fmt_name(player)} 触发【兑·欣悦交融】：无其他玩家可交易。")
+        return
+
+    target = random.choice(candidates)
+    give_amount = player.energy * 3// 4
+    receive_amount = target.energy * 3 // 4
+
+    # 实际交换
+    give_amount_1 = -player.add_energy(-give_amount)
+    give_amount_2 = -target.add_energy(-receive_amount)
+    receive_amount_1 = player.add_energy(receive_amount)
+    receive_amount_2 = target.add_energy(give_amount)
+
+    game.log.append(f"{fmt_name(player)} 触发【兑·欣悦交融】：")
+    game.log.append(f"与 {fmt_name(target)} 进行灵气交易：")
+    game.log.append(f"【{player.name}】送出 {give_amount_1} 灵气，获得 {receive_amount_1} 灵气")
+    game.log.append(f"【{target.name}】送出 {give_amount_2} 灵气，获得 {receive_amount_2} 灵气")
+
+def _handle_dui_4(game: Game, player: Player):
+    """言泉流金：立刻免费升级你的一块地皮建筑1个等级（最高至宫殿），并支付该地皮基础地价的金币"""
+    candidates = [idx for idx in player.properties if game.board.tiles[idx].level != BuildingLevel.PALACE]
+    if not candidates:
+        game.log.append(f"{fmt_name(player)} 触发【兑·言泉流金】：无可升级地皮")
+        return
+
+    idx = random.choice(candidates)
+    tile = game.board.tiles[idx]
+    cost = tile.price  # 基础地价作为代价
+
+    if player.money < cost:
+        game.log.append(f"{fmt_name(player)} 触发【兑·言泉流金】：资金不足，无法支付 {cost} 金币升级【{tile.name}】")
+        return
+
+    old_level = tile.level
+    tile.level = BuildingLevel(old_level.value + 1)
+    cost = -player.add_money(-cost)
+
+    game.log.append(f"{fmt_name(player)} 触发【兑·言泉流金】：")
+    game.log.append(f"支付 {cost} 金币，将【{tile.name}】从 {old_level.name} 升级至 {tile.level.name}")
