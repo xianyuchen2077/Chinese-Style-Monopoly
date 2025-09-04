@@ -88,8 +88,17 @@ class SkillManager:
         }
 
     def can_use_active_skill(self):
+        """检查玩家是否可以使用主动技能"""
         if not self.can_use_skill:
             return False
+
+        # 检查是否被子鼠技能封锁
+        if 'puppet' in self.player.status:
+            puppet_data = self.player.status['puppet']
+            if puppet_data.get('lock_skill', False):
+                return False  # 被子鼠II级技能封锁，无法使用技能
+
+        # 检查当前生肖技能的冷却时间
         z = self.player.zodiac
         if z in self.skills:
             return self.skills[z]['cooldown'] == 0
@@ -130,10 +139,25 @@ class SkillManager:
     # ------------- 统一外部调用接口 ----------------
     def use_active_skill(self, target_list=None, option=None, game=None):
         """
+        统一外部调用接口，带详细的错误信息
         target_list: list[Player] 可为空/单/多
         option:      额外参数
         """
+        # 检查基本技能使用权限
+        if not self.can_use_skill:
+            return False, "当前无法使用技能"
+
+        # 检查是否被子鼠技能封锁
+        if 'puppet' in self.player.status:
+            puppet_data = self.player.status['puppet']
+            if puppet_data.get('lock_skill', False):
+                return False, f"{fmt_name(self.player)} 处于 II级【傀儡】状态，无法使用技能"
+
+        # 检查冷却时间
         z = self.player.zodiac
+        if z in self.skills and self.skills[z]['cooldown'] > 0:
+            return False, f"技能冷却中，还需 {self.skills[z]['cooldown']} 回合"
+
         if z == '鼠':
             return self.use_shu(target_list, option)
         elif z == '牛':
@@ -195,7 +219,7 @@ class SkillManager:
                 }
                 target.can_move = False
 
-        # 技能冷却
+        # 设置技能冷却
         self.set_skill_cooldown()
         skill['used'] += 1
 

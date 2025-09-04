@@ -202,14 +202,11 @@ class Player:
         if 'puppet' in self.status:
             ctrl = self.status['puppet']
             if ctrl['turns'] > 0:
-                ctrl['turns'] -= 1
                 if ctrl['direction'] == 'stay':
                     self.can_move = False
+                    return 0
                 elif ctrl['direction'] == 'backward':
                     self.clockwise = not self.clockwise
-                if ctrl['turns'] == 0:
-                    self.status.pop('puppet')
-                return 0
 
         # 丑牛冲撞：提前记录路径
         if 'niu_rampage' in self.status:
@@ -490,12 +487,12 @@ class Game:
                 player = self.players[self.current_player_idx]
                 self._run_earthquake_test(player)
 
-            for p in self.players:
-                if p.zodiac == '虎':
-                    sk = p.skill_mgr.skills['虎']
-                    if sk['split_turns'] > 0 and not self.tiger_sub_turns:
-                        # 本轮尚未生成，补齐全套：【阳】【阴】
-                        self.tiger_sub_turns = [(p, "main"), (p, "clone")]
+        for p in self.players:
+            if p.zodiac == '虎':
+                sk = p.skill_mgr.skills['虎']
+                if sk['split_turns'] > 0 and not self.tiger_sub_turns:
+                    # 本轮尚未生成，补齐全套：【阳】【阴】
+                    self.tiger_sub_turns = [(p, "main"), (p, "clone")]
 
         # 1. 寅虎分身子回合
         if self.tiger_sub_turns:
@@ -522,10 +519,20 @@ class Game:
                     pass
 
             player.can_move = True
-            player.skill_mgr.tick_cooldown()
             return
 
-        # 2. 正常轮换
+        p = self.players[self.current_player_idx]
+        # 处理子鼠傀儡状态倒计时
+        if 'puppet' in p.status:
+            ctrl = p.status['puppet']
+            if ctrl['turns'] > 0:
+                ctrl['turns'] -= 1
+                if ctrl['turns'] == 0:
+                    p.status.pop('puppet')
+                    self.log.append(f"{fmt_name(p)} 摆脱了【灵鼠窃运】的控制，不再沦为【傀儡】状态")
+        p.skill_mgr.tick_cooldown()     # 减 CD
+
+        # 正常轮换
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
         self.turn += 1
         self.game_turn = (self.turn - 1) // len(self.players) + 1
@@ -561,7 +568,6 @@ class Game:
             p.can_move = True
             p.skill_mgr.can_use_skill = True
             # p.remain_in_the_same_position = False
-            p.skill_mgr.tick_cooldown()   # 统一减 CD
 
             # 业障状态处理
             if 'karma' in p.status:
@@ -592,6 +598,7 @@ class Game:
         # 八卦灵气值奇遇结算
         # 只处理当前回合玩家的状态
         p = self.players[self.current_player_idx]
+
         # 处理【坤·含弘光大】
         left = p.status.get("kun_pregnancy", 0)
         if left > 0:

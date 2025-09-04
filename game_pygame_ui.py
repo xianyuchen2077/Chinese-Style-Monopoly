@@ -1422,13 +1422,18 @@ class GameUI:
         dice_result = self.game.spin_wheel()
 
         # TEST MODE
-        if getattr(self, 'test_mode', False) and hasattr(self, 'test_dice'):
-            dice_result = self.test_dice        # 固定点数
-            self.log.append(f'[TEST] 固定骰点 {dice_result}')
-            self._scroll_to_bottom()
+        # if getattr(self, 'test_mode', False) and hasattr(self, 'test_dice'):
+        #     dice_result = self.test_dice        # 固定点数
+        #     self.log.append(f'[TEST] 固定骰点 {dice_result}')
+        #     self._scroll_to_bottom()
+        # TEST MODE
 
         if not player.can_move:
-            reason = "被【灵鼠窃运】禁锢，无法行动" if player.status.get('puppet', {}).get('direction') == 'stay' else "无法移动"
+            # 先判断是不是被灵鼠“停留”锁定
+            if player.status.get('puppet', {}).get('direction') == 'stay':
+                reason = "被【灵鼠窃运】禁锢，无法行动"
+            else:
+                reason = "无法移动"
             player.remain_in_the_same_position = True
             self.log.append(f'{fmt_name(player)} {reason}')
             self._scroll_to_bottom()
