@@ -95,8 +95,11 @@ class SkillManager:
         # 检查是否被子鼠技能封锁
         if 'puppet' in self.player.status:
             puppet_data = self.player.status['puppet']
-            if puppet_data.get('lock_skill', False):
-                return False  # 被子鼠II级技能封锁，无法使用技能
+            # 安全检查：确保 puppet_data 是字典
+            if isinstance(puppet_data, dict):
+                lock_skill = puppet_data.get('lock_skill', False)
+                if lock_skill:
+                    return False  # 被子鼠II级技能封锁，无法使用技能
 
         # 检查当前生肖技能的冷却时间
         z = self.player.zodiac
@@ -150,7 +153,8 @@ class SkillManager:
         # 检查是否被子鼠技能封锁
         if 'puppet' in self.player.status:
             puppet_data = self.player.status['puppet']
-            if puppet_data.get('lock_skill', False):
+            # 类型安全检查
+            if isinstance(puppet_data, dict) and puppet_data.get('lock_skill', False):
                 return False, f"{fmt_name(self.player)} 处于 II级【傀儡】状态，无法使用技能"
 
         # 检查冷却时间
@@ -188,13 +192,13 @@ class SkillManager:
             return False, "【灵鼠窃运】技能冷却中"
 
         level = skill['level']
-        if level != SkillLevel.III and len(target_list) != 1:          # 等级 I和II 仅允许 1 个目标
+        if level != SkillLevel.III.value and len(target_list) != 1:          # 等级 I和II 仅允许 1 个目标
             return False, "等级 I / II：必须且只能指定一名目标玩家"
-        elif level == SkillLevel.III and len(target_list) != 2:
+        elif level == SkillLevel.III.value and len(target_list) != 2:
             return False, "等级 III：必须且只能指定两名目标玩家"
-        turns = 2 if level == SkillLevel.III else 1 # 只有III级可以操控两个回合
-        lock_skill = (level == SkillLevel.II)         # 技能等级II级能够封锁技能
-        skip_turn = (level == SkillLevel.III)         # 技能等级III级能够跳过回合
+        turns = 2 if level == SkillLevel.III.value else 1     # 只有III级可以操控两个回合
+        lock_skill = (level == SkillLevel.II.value)           # 技能等级II级能够封锁技能
+        skip_turn = (level == SkillLevel.III.name)           # 技能等级III级能够跳过回合
 
         names = ",".join(fmt_name(p) for p in target_list)
 
