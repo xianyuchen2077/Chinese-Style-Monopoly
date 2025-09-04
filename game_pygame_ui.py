@@ -3,7 +3,8 @@
 
 import pygame
 import sys
-from game_core import Game, Element, BuildingLevel, Player, EARTHLY_NAMES, SkillLevel
+from game_core import Game, Element, BuildingLevel, Player, EARTHLY_NAMES
+from game_character_skill import SkillLevel
 from game_test import run_buy_test_case, run_upgrade_test_case
 import os
 import math

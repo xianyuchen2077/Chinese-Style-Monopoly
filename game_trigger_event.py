@@ -3,7 +3,8 @@
 
 import random
 from typing import Dict, List
-from game_core import fmt_name, Game, Player, Tile, SkillLevel, Negative, SKILL_NAMES, BuildingLevel
+from game_core import fmt_name, Game, Player, Tile, Negative, SKILL_NAMES, BuildingLevel
+from game_character_skill import SkillLevel
 from enum import Enum
 
 # 八卦枚举
