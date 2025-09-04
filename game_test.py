@@ -327,3 +327,36 @@ def run_bagua_test_case(bagua_char: str, ui_instance):
     ui_instance.log.append("=== 八卦灵气奇遇测试 ===")
     ui_instance.log.append(f"八卦：{bagua_char}，目标格：{target_idx}，骰点：{ui_instance.test_dice}")
     ui_instance._scroll_to_bottom()
+
+def run_shu_skill_test(level: int, ui_instance):
+    """
+    一键生成子鼠技能测试场景
+    level: 1=I级 2=II级 3=III级
+    """
+    ui_instance.log.clear()
+    ui_instance.test_mode = True
+
+    # 1) 新建游戏：子鼠玩家 + 2 个 NPC
+    game = Game(["子鼠玩家", "NPC1", "NPC2"], ["鼠", "牛", "虎"])
+    shu_player = game.players[0]
+    shu_player.game = game
+    shu_player.position = 0
+    shu_player.money = 10000
+    shu_player.energy = 9999
+    shu_player.skill_mgr.skills['鼠']['level'] = level        # 设定等级
+    shu_player.skill_mgr.skills['鼠']['cooldown'] = 0         # 无冷却
+
+    # 2) 让 NPC 站在 5、10 号格方便测试
+    npc1, npc2 = game.players[1], game.players[2]
+    npc1.position = 5
+    npc2.position = 10
+
+    # 3) 绑定到 UI
+    ui_instance.game = game
+    ui_instance.game.test_mode = True
+    ui_instance.player_sprites = ui_instance._load_player_sprites()
+
+    # 4) 日志
+    ui_instance.log.append(f"=== 子鼠技能测试 · 等级 {level} ===")
+    ui_instance.log.append("点击【符咒潜能】即可发动技能")
+    ui_instance._scroll_to_bottom()

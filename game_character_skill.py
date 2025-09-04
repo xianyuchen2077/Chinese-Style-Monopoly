@@ -152,8 +152,10 @@ class SkillManager:
     # ------------- 鼠 - 灵鼠窃运 ----------------
     def use_shu(self, target_list, direction):
         """
-        direction: 'backward' | 'stay'
+        子鼠技能——灵鼠窃运：指定一名其他玩家，控制其下一回合的移动方向（可强制其向反方向移动或原地停留），高级技能可以进行除移动外的其他操作
         """
+        from game_core import Player
+
         if not target_list:
             return False, "未选择目标"
 
@@ -162,24 +164,34 @@ class SkillManager:
             return False, "【灵鼠窃运】技能冷却中"
 
         level = skill['level']
+        if level != SkillLevel.III and len(target_list) != 1:          # 等级 I和II 仅允许 1 个目标
+            return False, "等级 I / II：必须且只能指定一名目标玩家"
+        elif level == SkillLevel.III and len(target_list) != 2:
+            return False, "等级 III：必须且只能指定两名目标玩家"
         turns = 2 if level == SkillLevel.III else 1 # 只有III级可以操控两个回合
-        lock_skill = level != SkillLevel.I          # 技能等级II级以上能够封锁技能
+        lock_skill = (level == SkillLevel.II)         # 技能等级II级能够封锁技能
+        skip_turn = (level == SkillLevel.III)         # 技能等级III级能够跳过回合
 
         names = ",".join(fmt_name(p) for p in target_list)
 
         # 支持多目标
         for target in target_list:
-            from game_core import Player
             assert isinstance(target, Player)
             if not target.can_be_skill_targeted():
                 return False, f"{self.player.name} 无法对 [{names}] 发动【灵鼠窃运】"
             if direction == 'backward':     # 反向
-                target.clockwise = not target.clockwise
+                target.status['puppet'] = {
+                    'turns': turns,
+                    'direction': 'backward',
+                    'lock_skill': lock_skill,
+                    'skip_turn': skip_turn
+                }
             elif direction == 'stay':       # 原地停留
-                target.status['shu_control'] = {
+                target.status['puppet'] = {
                     'turns': turns,
                     'direction': 'stay',
-                    'lock_skill': lock_skill
+                    'lock_skill': lock_skill,
+                    'skip_turn': skip_turn
                 }
                 target.can_move = False
 
@@ -193,11 +205,13 @@ class SkillManager:
         skill = self.skills['鼠']
         lvl, used, eng = skill['level'], skill['used'], self.player.energy
 
+        # 升级 I→II
         if lvl == SkillLevel.I and used >= 3 and eng >= 100:
             skill['level'] = SkillLevel.II
             self.player.energy -= 100
             return True
 
+        # 升级 II→III
         if lvl == SkillLevel.II and used >= 6 and eng >= 250:
             skill['level'] = SkillLevel.III
             self.player.energy -= 250

@@ -53,12 +53,12 @@ class Negative(Enum):
     """所有负面状态"""
     SKIP_TURNS   = "skip_turns"                 # 跳过本回合
     KARMA        = "karma"
-    SHU_CONTROL  = "shu_control"
+    PUPPET  = "puppet"
     FIRE_DEBUFF  = "fire_debuff"
     ZHEN_SHOCKED = "zhen_shocked"
     LI_SKILL_DOWNGRADE = "li_skill_downgrade"
     NO_MONEY_THIS_TURN = "no_money_this_turn"   # 本回合不会有经济收益
-    NO_ENERGY_THIS_TURN = "no_energy_this_turn"   # 本回合不会有灵气收益
+    NO_ENERGY_THIS_TURN = "no_energy_this_turn" # 本回合不会有灵气收益
     DEFENCE_SKILL_ONCE = "defence_skill_once"   # 免疫技能一次
 
 # 统一日志玩家名称
@@ -78,26 +78,26 @@ class Player:
         self.name = name
         self.zodiac = zodiac
         self.is_ai = is_ai
-        self.money = 10000       # 初始资金
+        self.money = 10000                  # 初始资金
         self.no_money_this_turn = False     # 本回合不能获得任何金币
         self.no_energy_this_turn = False    # 本回合不能获得任何灵气
-        self.energy = 100        # 初始灵气
+        self.energy = 100                   # 初始灵气
         self._pending_return: list[tuple[int, int]] = []  # (剩余回合, 金额/灵气)
         self.position = 0
         self.remain_in_the_same_position = False    # 上回合是不是停留在同一个格子（不能重复触发奇遇）
         self.score = 0
         self.properties = []
-        self.destroyed_tiles: set[int] = set()   # 曾被破坏的地皮索引
+        self.destroyed_tiles: set[int] = set()      # 曾被破坏的地皮索引
         self.status = {}
-        self.status.setdefault("energy_events", [])   # [(剩余回合, 数值, 描述)]
+        self.status.setdefault("energy_events", []) # [(剩余回合, 数值, 描述)]
         self.cooldowns = {}
         self.split = False
         self.skill_mgr = SkillManager(self)
-        self.clockwise = True          # True=顺时针, False=逆时针
-        self.can_move = True           # False 表示本轮不能转盘
-        self.last_upgrade_turn = -1   # 记录最近一次加盖的回合
+        self.clockwise = True                       # True=顺时针, False=逆时针
+        self.can_move = True                        # False 表示本轮不能转盘
+        self.last_upgrade_turn = -1                 # 记录最近一次加盖的回合
         self.game: Optional["Game"] = None
-        self.clone_idx: Optional[int] = None   # 分身棋子的格子序号
+        self.clone_idx: Optional[int] = None        # 分身棋子的格子序号
 
     def add_money(self, amount: int) -> int:
         """
@@ -199,13 +199,16 @@ class Player:
         """返回最终步数（含方向）"""
 
         # 被子鼠控制停留原地
-        if 'shu_control' in self.status:
-            ctrl = self.status['shu_control']
-            if ctrl['turns'] > 0 and ctrl['direction'] == 'stay':
+        if 'puppet' in self.status:
+            ctrl = self.status['puppet']
+            if ctrl['turns'] > 0:
                 ctrl['turns'] -= 1
+                if ctrl['direction'] == 'stay':
+                    self.can_move = False
+                elif ctrl['direction'] == 'backward':
+                    self.clockwise = not self.clockwise
                 if ctrl['turns'] == 0:
-                    del self.status['shu_control']
-                self.can_move = False
+                    self.status.pop('puppet')
                 return 0
 
         # 丑牛冲撞：提前记录路径

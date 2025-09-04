@@ -225,7 +225,7 @@ class GameUI:
         self.has_rolled = False     # 当前玩家是否已转动罗盘
         self.hovered_tile = None    # 当前悬停地块索引
         self.shu_target = None      # 子鼠技能：被选中的目标玩家
-        self.shu_sub_modal = None   # 'select_target' | 'select_dir'
+        self.shu_sub_modal = None   # 'select_target' | 'select_dir'，在子鼠技能菜单的时候使用
         self.hu_merge_mode   = None        # 'selecting_merge'
         self.hu_merge_cells  = []          # [idx1, idx2]
         self.hu_merge_player = None        # 当前正在合体的虎玩家
@@ -729,7 +729,7 @@ class GameUI:
 
         # 罗盘按钮
         cur_player = self.game.players[self.game.current_player_idx]
-        is_controlled = 'shu_control' in cur_player.status and cur_player.status['shu_control'].get('direction') == 'stay'
+        is_controlled = 'puppet' in cur_player.status and cur_player.status['puppet'].get('direction') == 'stay'
         can_spin = not self.has_rolled and cur_player.can_move and not is_controlled
         color_spin = (255, 222, 173) if can_spin else (200, 200, 200)
         text_spin  = (139, 69, 19)   if can_spin else (120, 120, 120)
@@ -743,7 +743,7 @@ class GameUI:
         can_skill = (
             not self.has_rolled
             and cur_player.skill_mgr.can_use_active_skill()
-            and not (cur_player.status.get('shu_control', {}).get('direction') == 'stay')
+            and not (cur_player.status.get('puppet', {}).get('direction') == 'stay')
         )
         color_skill = (176, 224, 230) if can_skill else (200, 200, 200)
         text_skill  = (25, 25, 112)   if can_skill else (120, 120, 120)
@@ -878,7 +878,7 @@ class GameUI:
                 if 'tiger_split' in player.status: positive_states.append('分身')
                 if 'skip_turns' in player.status: negative_states.append('休息')
                 if 'karma' in player.status: negative_states.append('业障')
-                if 'shu_control' in player.status: negative_states.append('被控')
+                if 'puppet' in player.status: negative_states.append('傀儡')
 
             status_parts = positive_states + negative_states
             attr_text = f"状态：{' '.join(status_parts)}" if status_parts else "状态：正常"
@@ -1125,6 +1125,8 @@ class GameUI:
             self._draw_test_level2_modal()
         elif self.active_modal == 'test_level3':
             self._draw_test_level3_modal(self.test_l2_key or '')
+        elif self.active_modal == "test_skill_level_choice":
+            self._draw_level_choice_modal()
         elif self.active_modal == 'shu_skill':
             self._render_shu_skill_modal(content_rect)
 
@@ -1183,7 +1185,7 @@ class GameUI:
         # ---------------- 罗盘按钮 ----------------
         if self.spin_btn_rect.collidepoint(pos):
             # 检查是否被子鼠控制停留，如果是则直接返回，不执行任何操作
-            if 'shu_control' in cur.status and cur.status['shu_control'].get('direction') == 'stay':
+            if 'puppet' in cur.status and cur.status['puppet'].get('direction') == 'stay':
                 # 添加提示信息
                 self.log.append(f'{fmt_name(cur)} 被【灵鼠窃运】禁锢，无法行动')
                 self._scroll_to_bottom()
@@ -1426,7 +1428,7 @@ class GameUI:
             self._scroll_to_bottom()
 
         if not player.can_move:
-            reason = "被【灵鼠窃运】禁锢，无法行动" if player.status.get('shu_control', {}).get('direction') == 'stay' else "无法移动"
+            reason = "被【灵鼠窃运】禁锢，无法行动" if player.status.get('puppet', {}).get('direction') == 'stay' else "无法移动"
             player.remain_in_the_same_position = True
             self.log.append(f'{fmt_name(player)} {reason}')
             self._scroll_to_bottom()
@@ -1974,6 +1976,15 @@ class GameUI:
                         run_upgrade_test_case(case_id, self)
                         self.active_modal = None
                         return True
+            elif l2_key == "skill":
+                for idx, (label,case_id) in enumerate([("子鼠", 1), ("丑牛", 2), ("寅虎", 3), ("卯兔", 4),
+                ("辰龙", 5), ("巳蛇", 6), ("午马", 7), ("未羊", 8),
+                ("申猴", 9), ("酉鸡", 10), ("戌狗", 11), ("亥猪", 12)], 1):
+                    btn = getattr(self, f'_test_l3_btn_{case_id}', None)
+                    if btn and btn.collidepoint(pos):
+                        # 再下一级：I / II / III
+                        self.active_modal = "test_skill_level_choice"
+                        return True
             elif l2_key == "bagua_lingqi":
                 for idx, (label, case_id) in enumerate([("乾",1),("坤",2),("震",3),("巽",4),("坎",5),("离",6),("艮",7),("兑",8)], 1):
                     btn = getattr(self, f'_test_l3_btn_{case_id}', None)
@@ -1996,8 +2007,19 @@ class GameUI:
                         elif label == "兑":
                             run_bagua_test_case("兑", self)
                         self.active_modal = None
-                        return
-            # 以后 skill / rent 再扩展
+                        return True
+
+        # ---------- 四级菜单点击 ----------
+        if self.active_modal == "test_skill_level_choice":
+            for lvl, num in zip(["I", "II", "III"], [1, 2, 3]):
+                btn = getattr(self, f"_shu_lvl_{lvl.lower()}_btn", None)
+                if btn and btn.collidepoint(pos):
+                    from game_test import run_shu_skill_test
+                    run_shu_skill_test(num, self)
+                    self.active_modal = None
+                    return True
+
+        return False
 
     def _load_modal_text(self, kind):
         # 从 rules.md 读取全文，或仅显示英雄节选
@@ -2075,7 +2097,7 @@ class GameUI:
             pygame.display.flip()
             self.clock.tick(60)
 
-    ### TEST MODAL ###
+    ### TEST MODE ###
     ### TEST LEVEL-2 MODAL ###
     def _draw_test_level2_modal(self):
         """二级菜单：三列自适应按钮，固定居中弹窗"""
@@ -2121,7 +2143,7 @@ class GameUI:
 
             txt = font.render(label, True, (0, 0, 0))
             self.screen.blit(txt, txt.get_rect(center=btn_rect.center))
-            setattr(self, f'_test_l2_btn_{key}', btn_rect)
+            setattr(self, f'_test_l2_btn_{key}', btn_rect)# 缓存按钮区域
 
     ### TEST LEVEL-3 MODAL ###
     def _draw_test_level3_modal(self, l2_key: str):
@@ -2137,49 +2159,51 @@ class GameUI:
         try: f_title.set_bold(True)
         except: pass
 
-        # 修改标题映射，添加 upgrade
-        title_map = {
-            'buy': '地皮购买',
-            'upgrade': '地皮加盖',
-            'skill': '技能测试',
-            'rent': '租金测试'
-        }
+        # 标题映射
+        title_map = {value: label for label, value in TEST_LEVEL2_BUTTONS}
         title = f"{title_map.get(l2_key, '')} 用例"
         self.screen.blit(f_title.render(title,True,(40,40,40)),
                         f_title.render(title,True,(40,40,40)).get_rect(centerx=panel.centerx,top=y+18))
-
-        # 根据 l2_key 选择不同的按钮
-        if l2_key == "buy":
-            BUTTONS = [
-                ("空地可买", 1, 1),
-                ("空地钱不够", 2, 2),
-                ("已被别人占据", 3, 3),
-                ("特殊格子不能买", 6, 4),
-            ]
-        elif l2_key == "upgrade":
-            BUTTONS = [
-                ("他人地皮", 1, 1),
-                ("正常逐级加盖", 2, 2),
-                ("加盖条件不足", 3, 3),
-                ("地皮遭受破坏", 4, 4),
-            ]
-        elif l2_key == "bagua_lingqi":
-            BUTTONS = [
-                ("乾", 1, 1), ("坤", 1, 2), ("震", 1, 3), ("巽", 1, 4),
-                ("坎", 1, 5), ("离", 1, 6), ("艮", 1, 7), ("兑", 1, 8),
-            ]
-
         COLS = 2
         ROWS = 2
         PAD = 25
         BTN_W = (w - 2*PAD - (COLS-1)*15)//COLS
-        BTN_H = 60
+        BTN_H = 60       # 按钮高度
+
+        # 根据 l2_key 选择不同的按钮
+        if l2_key == "buy":
+            BUTTONS = [
+                ("空地可买", 1),
+                ("空地钱不够", 2),
+                ("已被别人占据", 3),
+                ("特殊格子不能买", 4),
+            ]
+        elif l2_key == "upgrade":
+            BUTTONS = [
+                ("他人地皮", 1),
+                ("正常逐级加盖", 2),
+                ("加盖条件不足", 3),
+                ("地皮遭受破坏", 4),
+            ]
+        elif l2_key == "skill":
+            BUTTONS = [
+                ("子鼠", 1), ("丑牛", 2), ("寅虎", 3), ("卯兔", 4),
+                ("辰龙", 5), ("巳蛇", 6), ("午马", 7), ("未羊", 8),
+                ("申猴", 9), ("酉鸡", 10), ("戌狗", 11), ("亥猪", 12),
+            ]
+            BTN_H = 45
+        elif l2_key == "bagua_lingqi":
+            BUTTONS = [
+                ("乾", 1), ("坤", 2), ("震", 3), ("巽", 4),
+                ("坎", 5), ("离", 6), ("艮", 7), ("兑", 8),
+            ]
+
         start_y = y + 90
         f_btn = get_chinese_font(20)
         try: f_btn.set_bold(True)
         except: pass
 
-        for idx,(label,grid,case_id) in enumerate(BUTTONS):
+        for idx,(label,case_id) in enumerate(BUTTONS):
             c,r = idx%COLS, idx//COLS
             bx = x + PAD + c*(BTN_W+15)
             by = start_y + r*(BTN_H+15)
@@ -2191,6 +2215,34 @@ class GameUI:
 
             # 统一命名
             setattr(self, f'_test_l3_btn_{case_id}', btn_rect)
+
+    def _draw_level_choice_modal(self):
+        """绘制【测试】-【技能测试】-【XX】-【I/II/
+        III】的最后一级菜单"""
+        w, h = 360, 180
+        x, y = (self.width - w) // 2, (self.height - h) // 2
+        panel = pygame.Rect(x, y, w, h)
+        pygame.draw.rect(self.screen, (250, 250, 255), panel, border_radius=12)
+        pygame.draw.rect(self.screen, (150, 150, 200), panel, 2, border_radius=12)
+
+        # 获取选中的技能名称，如果没有则默认为"子鼠"
+        selected_skill = getattr(self, 'selected_skill', '子鼠')
+        title_text = f"选择{selected_skill}技能等级"
+
+        title = FONT.render(title_text, True, (40, 40, 40))
+        self.screen.blit(title, title.get_rect(centerx=panel.centerx, top=y + 12))
+
+        btn_w, btn_h = 80, 40
+        gap = 20
+        start_x = x + (w - 3 * btn_w - 2 * gap) // 2
+        start_y = y + 60
+
+        for idx, lvl in enumerate(["I", "II", "III"]):
+            btn_rect = pygame.Rect(start_x + idx * (btn_w + gap), start_y, btn_w, btn_h)
+            pygame.draw.rect(self.screen, (220, 220, 240), btn_rect, border_radius=6)
+            txt = FONT.render(lvl, True, (0, 0, 0))
+            self.screen.blit(txt, txt.get_rect(center=btn_rect.center))
+            setattr(self, f"_shu_lvl_{lvl.lower()}_btn", btn_rect)  # 确保按钮名称正确设置
 
 if __name__ == '__main__':
     count, zodiacs = choose_players_ui()
