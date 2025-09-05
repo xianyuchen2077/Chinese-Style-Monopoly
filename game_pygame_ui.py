@@ -730,7 +730,11 @@ class GameUI:
         # 罗盘按钮
         cur_player = self.game.players[self.game.current_player_idx]
         is_controlled = 'puppet' in cur_player.status and cur_player.status['puppet'].get('direction') == 'stay'
-        can_spin = not self.has_rolled and cur_player.can_move and not is_controlled
+        can_spin = (
+            not self.has_rolled
+            and cur_player.can_move
+            and not is_controlled
+        )
         color_spin = (255, 222, 173) if can_spin else (200, 200, 200)
         text_spin  = (139, 69, 19)   if can_spin else (120, 120, 120)
         self.spin_btn_rect = pygame.Rect(info_x+24, btn_y, 140, 44)
@@ -1191,10 +1195,10 @@ class GameUI:
                 self._scroll_to_bottom()
                 return  # 直接返回，不执行后续的罗盘逻辑
 
-            if not self.has_rolled:        # 本回合尚未转动
+            if not self.has_rolled:            # 本回合尚未转动
                 self.spin_wheel()
-                self.has_rolled = True     # 标记已转动
-            else:                          # 已转动，自动进入下一位
+                self.has_rolled = True         # 标记已转动
+            else:                              # 已转动，自动进入下一位
                 self.log.append(f'{fmt_name(cur)} 本回合已转动罗盘')
                 self._scroll_to_bottom()
 
@@ -1901,7 +1905,11 @@ class GameUI:
 
                         if ok:
                             # 立即追加详细日志
-                            direction_text = "反向移动" if key == 'backward' else "原地停留一回合"
+                            if cur.skill_mgr.skills['鼠']['level'] != SkillLevel.III.value:
+                                turn = 1
+                            else:
+                                turn = 2
+                            direction_text = "反向移动" if key == 'backward' else f"原地停留 {turn} 回合"
                             self.log.append(f"强制其{direction_text}")
                         self._scroll_to_bottom()
                         # 关闭弹窗，刷新界面

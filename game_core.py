@@ -522,7 +522,7 @@ class Game:
             return
 
         p = self.players[self.current_player_idx]
-        # 处理子鼠傀儡状态倒计时
+        # 处理子鼠【傀儡】状态倒计时
         if 'puppet' in p.status:
             ctrl = p.status['puppet']
             if ctrl['turns'] > 0:
@@ -530,6 +530,7 @@ class Game:
                 if ctrl['turns'] == 0:
                     p.status.pop('puppet')
                     self.log.append(f"{fmt_name(p)} 摆脱了【灵鼠窃运】的控制，不再沦为【傀儡】状态")
+
         p.skill_mgr.tick_cooldown()     # 减 CD
 
         # 正常轮换
@@ -575,9 +576,11 @@ class Game:
                 if p.status['karma'] <= 0:
                     del p.status['karma']
                     self.log.append(f"{fmt_name(p)} 业障消散")
-
+            # 子鼠是否使用二次技能（变量清零）
+            if p.zodiac == '鼠':
+                p.skill_mgr.shu_iii_used_this_turn = 0
             # 卯兔加速
-            if p.zodiac == '兔':
+            elif p.zodiac == '兔':
                 p.skill_mgr.skills['兔']['active'] = False
             # 未羊灵魂
             elif p.zodiac == '羊':
@@ -733,11 +736,11 @@ class Game:
             tile = self.board.tiles[tile_idx]
             if tile.owner and tile.level.value > 0:
                 damage = 0
-                if level == SkillLevel.I:
+                if level == SkillLevel.I.value:
                     damage = 1
-                elif level == SkillLevel.II:
+                elif level == SkillLevel.II.value:
                     damage = 1 if tile.owner != player else 0
-                elif level == SkillLevel.III:
+                elif level == SkillLevel.III.value:
                     damage = 2 if tile.owner != player else 0
 
                 if damage > 0:

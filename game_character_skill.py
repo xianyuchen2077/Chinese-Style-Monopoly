@@ -86,6 +86,7 @@ class SkillManager:
             '羊': SKILL_YANG.copy(),
             '鸡': SKILL_JI.copy()
         }
+        self.shu_iii_used_this_turn = 0  # 仅供子鼠 III 级使用
 
     def can_use_active_skill(self):
         """检查玩家是否可以使用主动技能"""
@@ -101,6 +102,11 @@ class SkillManager:
                 if lock_skill:
                     return False  # 被子鼠II级技能封锁，无法使用技能
 
+        # 子鼠 III 级可以使用两次按钮
+        if self.skills['鼠']['level'] == SkillLevel.III.value and self.shu_iii_used_this_turn < 2 :
+            # self.skills['鼠']['cooldown'] = 0
+            return True
+
         # 检查当前生肖技能的冷却时间
         z = self.player.zodiac
         if z in self.skills:
@@ -111,12 +117,13 @@ class SkillManager:
         z = self.player.zodiac
         skill = self.skills[z]
         level = skill['level']
+        # 由于当前回合 cooldown 就会 -1 所以设置的时候需要 +1
         if z == '鼠':
-            skill['cooldown'] = 4 if level == SkillLevel.III else 3
+            skill['cooldown'] = 5 if level == SkillLevel.III.value else 4
         elif z == '牛':
             skill['cooldown'] = 3
         elif z == '虎':
-            skill['cooldown'] = 4 if level == SkillLevel.III else 3
+            skill['cooldown'] = 4 if level == SkillLevel.III.value else 3
         elif z == '兔':
             skill['cooldown'] = 3
         elif z == '龙':
@@ -188,17 +195,23 @@ class SkillManager:
             return False, "未选择目标"
 
         skill = self.skills['鼠']
+        level = skill['level']
+        turns = 2 if level == SkillLevel.III.value else 1     # 只有III级可以操控两个回合
+        lock_skill = (level == SkillLevel.II.value)           # 技能等级II级能够封锁技能
+        skip_turn = (level == SkillLevel.III.value)           # 技能等级III级能够跳过回合
+
         if skill['cooldown'] > 0:
             return False, "【灵鼠窃运】技能冷却中"
 
-        level = skill['level']
+        # III 级：每回合最多发动 2 次，每次只能选 1 人
+        if level == SkillLevel.III.value:
+            if self.shu_iii_used_this_turn >= 2:
+                return False, "【灵鼠窃运】本回合已发动 2 次，无法继续使用"
+
         if level != SkillLevel.III.value and len(target_list) != 1:          # 等级 I和II 仅允许 1 个目标
             return False, "等级 I / II：必须且只能指定一名目标玩家"
-        elif level == SkillLevel.III.value and len(target_list) != 2:
-            return False, "等级 III：必须且只能指定两名目标玩家"
-        turns = 2 if level == SkillLevel.III.value else 1     # 只有III级可以操控两个回合
-        lock_skill = (level == SkillLevel.II.value)           # 技能等级II级能够封锁技能
-        skip_turn = (level == SkillLevel.III.name)           # 技能等级III级能够跳过回合
+        elif level == SkillLevel.III.value and (len(target_list) > 2 or len(target_list) <= 0):
+            return False, "等级 III：最多能指定两名目标玩家，至少指定一名玩家"
 
         names = ",".join(fmt_name(p) for p in target_list)
 
@@ -224,7 +237,14 @@ class SkillManager:
                 target.can_move = False
 
         # 设置技能冷却
-        self.set_skill_cooldown()
+        if level == SkillLevel.III.value:
+            self.shu_iii_used_this_turn += 1
+            if self.shu_iii_used_this_turn == 2:
+                # 第二次发动后进入冷却
+                self.set_skill_cooldown()
+        else:
+            # I/II 级立即冷却
+            self.set_skill_cooldown()
         skill['used'] += 1
 
         return True, f"{self.player.name} 对 [{names}] 发动【灵鼠窃运】"
@@ -235,13 +255,13 @@ class SkillManager:
 
         # 升级 I→II
         if lvl == SkillLevel.I and used >= 3 and eng >= 100:
-            skill['level'] = SkillLevel.II
+            skill['level'] = SkillLevel.II.value
             self.player.energy -= 100
             return True
 
         # 升级 II→III
         if lvl == SkillLevel.II and used >= 6 and eng >= 250:
-            skill['level'] = SkillLevel.III
+            skill['level'] = SkillLevel.III.value
             self.player.energy -= 250
             return True
         return False
